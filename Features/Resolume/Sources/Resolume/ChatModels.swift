@@ -59,6 +59,11 @@ public struct ChatCompletionRequest: Encodable, Sendable {
     public var messages: [ChatMessage]
     public var tools: [ChatToolSpec]?
     public var tool_choice: String?
+    /// `false` pedido explicitamente: o `fm serve` da Apple **defaulta para SSE**
+    /// (`Content-Type: text/event-stream`) e nosso parser só lê resposta fechada.
+    /// Medido: com `stream:false` ele devolve JSON puro e HTTP 200.
+    /// Optional para não mandar o campo para backends que não o entendem.
+    public var stream: Bool?
 }
 
 public struct ChatCompletionResponse: Decodable, Sendable {
@@ -77,9 +82,26 @@ public protocol ChatBackendTransport: Sendable {
 }
 
 public struct URLSessionChatTransport: ChatBackendTransport {
-    private let session: URLSession
+    /// Visivel para testes (`@testable`): e assim que a regressao prova que o
+    /// padrao nao voltou a ser `URLSession.shared` (teto de 60 s).
+    let session: URLSession
 
-    public init(session: URLSession = .shared) { self.session = session }
+    /// Turno local de verdade (modelo pequeno + 22 ferramentas MCP) medido em
+    /// ~118 s. `URLSession.shared` corta em 60 s e a UI mostra "conectou e nao
+    /// acontece nada" -- exatamente o erro -1001 que apareceu no teste ao vivo.
+    /// Por isso a sessao padrao e nossa, com teto acima da latencia local.
+    public static let defaultRequestTimeout: TimeInterval = 300
+
+    public init(timeout: TimeInterval = Self.defaultRequestTimeout) {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout * 2
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        self.session = URLSession(configuration: configuration)
+    }
+
+    /// Para testes injetarem transporte controlado.
+    public init(session: URLSession) { self.session = session }
 
     public func complete(endpoint: URL, apiKey: String, body: Data) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: endpoint)
@@ -95,6 +117,13 @@ public struct URLSessionChatTransport: ChatBackendTransport {
             let detail = String(data: data.prefix(500), encoding: .utf8) ?? ""
             throw ChatError.httpStatus(code: httpResponse.statusCode, detail: detail)
         }
+        // Backend que ignora nosso `stream:false` viria aqui como SSE. Melhor um
+        // erro legível do que "The data couldn't be read because it isn't in the
+        // correct format" no meio de uma conversa ao vivo.
+        if httpResponse.value(forHTTPHeaderField: "Content-Type")?
+            .lowercased().contains("text/event-stream") == true {
+            throw ChatError.streamingUnsupported
+        }
         return (data, httpResponse)
     }
 }
@@ -103,12 +132,16 @@ public enum ChatError: Error, LocalizedError, Equatable {
     case invalidResponse
     case noChoices
     case httpStatus(code: Int, detail: String)
+    case streamingUnsupported
 
     public var errorDescription: String? {
         switch self {
         case .invalidResponse: "Resposta inválida do backend de chat"
         case .noChoices: "Backend de chat não retornou escolhas"
         case .httpStatus(let code, let detail): "Backend de chat respondeu \(code): \(detail)"
+        case .streamingUnsupported:
+            "O backend de chat respondeu em streaming (SSE), que a gente ainda não "
+            + "lê. Informe o provedor e tente de novo."
         }
     }
 }

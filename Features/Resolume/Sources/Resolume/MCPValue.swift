@@ -57,6 +57,10 @@ public enum MCPValue: Codable, Equatable, Sendable {
         if case .string(let value) = self { value } else { nil }
     }
 
+    public var boolValue: Bool? {
+        if case .bool(let value) = self { value } else { nil }
+    }
+
     public subscript(key: String) -> MCPValue? {
         objectValue?[key]
     }

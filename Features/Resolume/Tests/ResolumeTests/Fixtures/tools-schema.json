@@ -1,0 +1,458 @@
+{
+ "result": {
+  "tools": [
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "set",
+        "reset",
+        "get_animation",
+        "set_animation"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "parameter"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "open",
+        "get",
+        "list",
+        "trigger",
+        "eject",
+        "select",
+        "rename",
+        "copy",
+        "move",
+        "swap",
+        "merge",
+        "clear",
+        "clear_track",
+        "set_size",
+        "find",
+        "thumbnail",
+        "thumbnail_upload",
+        "thumbnail_delete",
+        "thumbnail_update",
+        "dashboard_get",
+        "get_transport",
+        "set_transport"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "clip"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "list",
+        "create",
+        "delete",
+        "duplicate",
+        "move",
+        "rename",
+        "group",
+        "ungroup",
+        "eject",
+        "clear_clips",
+        "clear",
+        "bypass",
+        "solo",
+        "select",
+        "dashboard_get"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "layer"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "list",
+        "create",
+        "delete",
+        "duplicate",
+        "rename",
+        "eject",
+        "clear",
+        "bypass",
+        "solo",
+        "dashboard_get"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "group"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "list",
+        "trigger",
+        "eject",
+        "clear",
+        "create",
+        "delete",
+        "duplicate",
+        "copy",
+        "move",
+        "swap",
+        "rename",
+        "select"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "column"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "list",
+        "create",
+        "delete",
+        "rename",
+        "select",
+        "duplicate",
+        "eject",
+        "clear",
+        "open"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "deck"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "set",
+        "list"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "color_code"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "list",
+        "open",
+        "save",
+        "save_as",
+        "new",
+        "undo",
+        "redo",
+        "grow",
+        "eject",
+        "playing",
+        "diff",
+        "dashboard_get"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "composition"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "add",
+        "get",
+        "list",
+        "move",
+        "remove",
+        "rename",
+        "bypass",
+        "clear",
+        "copy"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "effect"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "set",
+        "play",
+        "pause",
+        "stop",
+        "resync"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "transport"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "set"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "crossfader"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "effects",
+        "sources",
+        "blendmodes",
+        "codecs",
+        "autopilot",
+        "monitoring",
+        "parameters",
+        "animation",
+        "palettes",
+        "product",
+        "transitions",
+        "trigger_pipeline",
+        "gui",
+        "audio",
+        "dashboard",
+        "transport"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "catalog"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "diagnose"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "instructions"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "status"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "browse",
+        "info",
+        "loaded"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "file"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "set",
+        "list"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "autopilot"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "video_synthesis",
+        "algorithmic",
+        "reaction_diffusion",
+        "minimalism",
+        "color_field",
+        "glitch",
+        "cymatics",
+        "quantized",
+        "data",
+        "mechanical",
+        "mandala",
+        "organic",
+        "typography",
+        "shadow",
+        "lofi",
+        "duotone",
+        "silhouette",
+        "stained_glass",
+        "lattice",
+        "pastel",
+        "pointillism",
+        "infrared",
+        "metallic",
+        "laser",
+        "stencil",
+        "collage",
+        "interference",
+        "topographic",
+        "plotter"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "style"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "feedback",
+        "compositing",
+        "colorization",
+        "timing",
+        "climax",
+        "troubleshooting",
+        "organization",
+        "effect_chain",
+        "vision",
+        "forward_motion",
+        "illumination",
+        "tone_mapping",
+        "content_creation",
+        "effect_clip",
+        "masking",
+        "uv_mapping",
+        "audio_reactivity"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "technique"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "set",
+        "reset"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "transform"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "get",
+        "set",
+        "list",
+        "options"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "transition"
+   },
+   {
+    "inputSchema": {
+     "properties": {
+      "action": {
+       "enum": [
+        "snapshot",
+        "inspect",
+        "motion",
+        "diff",
+        "layers",
+        "list"
+       ],
+       "type": "string"
+      }
+     }
+    },
+    "name": "monitor"
+   },
+   {
+    "inputSchema": {
+     "properties": {}
+    },
+    "name": "batch"
+   }
+  ]
+ }
+}

@@ -5,7 +5,7 @@ import Testing
 /// Fumaça contra o binário real: só roda com o Arena aberto (socket REST vivo),
 /// porque sem ele o servidor MCP trava em tools/list.
 @Test("sessão real com o binário MCP do Arena",
-      .enabled(if: ResolumeProduct.arena.isRunning()))
+      .enabled(if: ResolumeProduct.arena.isResponsive()))
 func realArenaHandshake() async throws {
     let transport = ProcessMCPTransport(
         executableURL: URL(fileURLWithPath: ResolumeProduct.arena.mcpExecutablePath),

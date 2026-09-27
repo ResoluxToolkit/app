@@ -24,8 +24,12 @@ actor ScriptedChatTransport: ChatBackendTransport {
     }
 
     nonisolated static func toolCallResponse(id: String, name: String, arguments: String) -> String {
-        """
-        {"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"\(id)","type":"function","function":{"name":"\(name)","arguments":"\(arguments)"}}]},"finish_reason":"tool_calls"}]}
+        // `arguments` vai dentro de uma string JSON: aspas precisam escapar.
+        let escaped = arguments
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return """
+        {"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"\(id)","type":"function","function":{"name":"\(name)","arguments":"\(escaped)"}}]},"finish_reason":"tool_calls"}]}
         """
     }
 }
@@ -35,7 +39,7 @@ func toolRoundTrip() async throws {
     let mcp = MCPClient(transport: FakeMCPServer())
     try await mcp.connect()
     let backend = ScriptedChatTransport(script: [
-        ScriptedChatTransport.toolCallResponse(id: "call_1", name: "status", arguments: "{}"),
+        ScriptedChatTransport.toolCallResponse(id: "call_1", name: "status", arguments: #"{"action":"get"}"#),
         ScriptedChatTransport.textResponse("Arena rodando."),
     ])
     let engine = ChatEngine(
@@ -67,4 +71,29 @@ func plainAnswerWithoutTools() async throws {
     await #expect(throws: MCPError.notInitialized) {
         _ = try await engine.send("oi")
     }
+}
+
+@Test("prompt exige declarar a fonte do relógio antes de citar BPM")
+func promptTeachesPerClipClockSource() {
+    // Lição do operador: o Arena tem vários controles de velocidade e transporte.
+    // Cada clipe tem o próprio modo, então o BPM global do transport não é
+    // necessariamente o andamento do show. Sem isso o assistente informa número
+    // solto pro VJ no meio da performance.
+    let prompt = ChatEngine.systemPrompt
+    #expect(prompt.contains("clip.type"))
+    #expect(prompt.contains("BPM Sync"))
+    #expect(prompt.contains("SMPTE"))
+    #expect(prompt.contains("Pioneer"))
+    #expect(prompt.contains("fonte"))
+}
+
+@Test("prompt proibe sugerir SMPTE para clipe com audio")
+func promptForbidsSmpteOnClipsWithAudio() {
+    // Regra do operador, ausente do schema do Arena: sincronismo SMPTE so roda em
+    // clipe cuja faixa e so de video. O schema so documenta o caso contrario
+    // (clip.syncmode 'Beats'/'BPM' exige audio), entao sem isto no prompt o
+    // assistente sugere SMPTE para clipe com audio e o Arena recusa em cena.
+    let prompt = ChatEngine.systemPrompt
+    #expect(prompt.contains("sem faixa"))
+    #expect(prompt.contains("Nunca sugira SMPTE"))
 }

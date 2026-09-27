@@ -23,8 +23,10 @@ public enum ResolumeProduct: String, Sendable, Codable, CaseIterable {
         NSHomeDirectory() + "/Library/Application Support/\(appName)/rest-api.sock"
     }
 
-    public func isRunning(fileManager: FileManager = .default) -> Bool {
-        fileManager.fileExists(atPath: restSocketPath)
+    /// Prontidão real: o Arena precisa *atender* o socket REST, não só ter
+    /// deixado o arquivo para trás ao fechar.
+    public func isResponsive() -> Bool {
+        UnixSocketProbe.isAcceptingConnections(atPath: restSocketPath)
     }
 
     /// O servidor MCP só existe no host macOS (Arena/Wire são apps desktop).

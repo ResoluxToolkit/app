@@ -30,11 +30,19 @@ public actor MCPClient {
     private let protocolVersion = "2025-03-26"
     private var nextRequestID = 1
     private var initialized = false
+    private var instructions: String?
+    private var instructionsAcknowledged = false
+    private var cachedTools: [MCPToolInfo]?
 
     public init(transport: any MCPTransport, clientName: String = "Resolux") {
         self.transport = transport
         self.clientName = clientName
     }
+
+    /// Instruções que o servidor devolveu no `initialize`. A Resolume exige que
+    /// o cliente as declare lidas antes de aceitar qualquer `tools/call` — e,
+    /// traiçoeiro, `tools/list` reseta essa declaração. Ver `acknowledgeServerInstructions`.
+    public var serverInstructions: String? { instructions }
 
     /// Lança o servidor e completa o handshake initialize/initialized.
     public func connect() async throws {
@@ -47,7 +55,10 @@ public actor MCPClient {
             ]),
             "capabilities": .object([:]),
         ]
-        _ = try await request(method: "initialize", params: params)
+        let result = try await request(method: "initialize", params: params)
+        instructions = result["instructions"]?.stringValue
+        instructionsAcknowledged = false
+        cachedTools = nil
         try await transport.notify(encode(MCPNotification(method: "notifications/initialized")))
         initialized = true
     }
@@ -57,28 +68,85 @@ public actor MCPClient {
         initialized = false
     }
 
-    public func listTools() async throws -> [MCPToolInfo] {
+    /// Lista as ferramentas uma única vez e cacheia. Repetir `tools/list` a cada
+    /// rodada do chat custaria ~70 KB por chamada e, pior, desarma o gate de
+    /// instruções do servidor da Resolume no meio do diálogo.
+    public func listTools(forceRefresh: Bool = false) async throws -> [MCPToolInfo] {
+        if let cachedTools, !forceRefresh { return cachedTools }
         let result = try await request(method: "tools/list")
         let tools = result["tools"]?.arrayValue ?? []
-        return tools.compactMap { tool in
+        let infos = tools.compactMap { tool -> MCPToolInfo? in
             guard let name = tool["name"]?.stringValue else { return nil }
             return MCPToolInfo(
                 name: name,
                 description: tool["description"]?.stringValue,
                 inputSchema: tool["inputSchema"] ?? .object(["type": .string("object")]))
         }
+        cachedTools = infos
+        // Listar ferramentas desarma a declaração de leitura: reafirmar aqui, na
+        // mesma respirada, antes de qualquer tools/call.
+        instructionsAcknowledged = false
+        _ = await acknowledgeServerInstructions()
+        return infos
+    }
+
+    /// Declara ao servidor que lemos as instruções do `initialize`. A Resolume
+    /// devolve `isError` em todo `tools/call` até receber essa declaração.
+    ///
+    /// Não lança: um servidor sem gate (sem instruções, ou sem ferramenta
+    /// `status`) só retorna `false`. Derrubar uma sessão sadia porque o servidor
+    /// é mais simples que a Resolume seria um bug nosso.
+    @discardableResult
+    public func acknowledgeServerInstructions() async -> Bool {
+        guard let instructions, !instructions.isEmpty, !instructionsAcknowledged else {
+            return false
+        }
+        guard let outcome = try? await performToolCall(
+            "status",
+            arguments: ["action": .string("instructions"), "injected": .bool(true)]),
+            !outcome.isError
+        else { return false }
+        instructionsAcknowledged = true
+        return true
     }
 
     @discardableResult
     public func callTool(_ name: String, arguments: [String: MCPValue] = [:]) async throws -> MCPCallResult {
+        let first = try await performToolCall(name, arguments: arguments)
+        // Se o gate caiu no meio da sessão (um tools/list tardio, um reconnect),
+        // reafirmar as instruções e repetir a chamada uma única vez.
+        if first.isError, Self.isInstructionsGate(first.text), !isInstructionsAck(name, arguments) {
+            instructionsAcknowledged = false
+            _ = await acknowledgeServerInstructions()
+            let retry = try await performToolCall(name, arguments: arguments)
+            return try conclude(retry)
+        }
+        return try conclude(first)
+    }
+
+    private func conclude(_ outcome: MCPCallResult) throws -> MCPCallResult {
+        if outcome.isError { throw MCPError.toolFailed(outcome.text) }
+        return outcome
+    }
+
+    private func performToolCall(
+        _ name: String,
+        arguments: [String: MCPValue]
+    ) async throws -> MCPCallResult {
         let result = try await request(
             method: "tools/call",
             params: ["name": .string(name), "arguments": .object(arguments)])
         let content = result["content"]?.arrayValue ?? []
         let isError = result["isError"].map { if case .bool(let flag) = $0 { flag } else { false } } ?? false
-        let outcome = MCPCallResult(content: content, isError: isError)
-        if isError { throw MCPError.toolFailed(outcome.text) }
-        return outcome
+        return MCPCallResult(content: content, isError: isError)
+    }
+
+    private func isInstructionsAck(_ name: String, _ arguments: [String: MCPValue]) -> Bool {
+        name == "status" && arguments["action"]?.stringValue == "instructions"
+    }
+
+    private static func isInstructionsGate(_ text: String) -> Bool {
+        text.lowercased().contains("must read server instructions")
     }
 
     /// Requisição genérica — usada pelo ChatEngine para métodos ad-hoc.

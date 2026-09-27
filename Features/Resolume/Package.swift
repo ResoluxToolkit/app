@@ -10,10 +10,18 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Packages/ResoluxCore"),
+        .package(path: "../../Packages/ResoluxDesignSystem"),
     ],
     targets: [
         .target(name: "Resolume", dependencies: [.product(name: "ResoluxCore", package: "ResoluxCore")]),
-        .target(name: "ResolumeUI", dependencies: ["Resolume"]),
-        .testTarget(name: "ResolumeTests", dependencies: ["Resolume"]),
+        .target(name: "ResolumeUI", dependencies: [
+            "Resolume",
+            .product(name: "ResoluxDesignSystem", package: "ResoluxDesignSystem"),
+        ]),
+        .testTarget(
+            name: "ResolumeTests",
+            dependencies: ["Resolume", "ResolumeUI"],
+            resources: [.copy("Fixtures/tools-schema.json")]
+        ),
     ]
 )
