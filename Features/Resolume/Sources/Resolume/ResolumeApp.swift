@@ -17,6 +17,16 @@ public enum ResolumeProduct: String, Sendable, Codable, CaseIterable {
         "/Applications/\(appName)/mcp/resolume_\(rawValue)_mcp_server"
     }
 
+    /// Unix socket do REST API, criado pelo app quando ele está aberto.
+    /// O servidor MCP trava em tools/list sem esse socket — é o gate de prontidão.
+    public var restSocketPath: String {
+        NSHomeDirectory() + "/Library/Application Support/\(appName)/rest-api.sock"
+    }
+
+    public func isRunning(fileManager: FileManager = .default) -> Bool {
+        fileManager.fileExists(atPath: restSocketPath)
+    }
+
     /// O servidor MCP só existe no host macOS (Arena/Wire são apps desktop).
     public var capability: Capability {
         Capability(
