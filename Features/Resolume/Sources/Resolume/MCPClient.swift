@@ -3,10 +3,12 @@ import Foundation
 public struct MCPToolInfo: Sendable, Equatable {
     public let name: String
     public let description: String?
+    public let inputSchema: MCPValue
 
-    public init(name: String, description: String?) {
+    public init(name: String, description: String?, inputSchema: MCPValue = .object(["type": .string("object")])) {
         self.name = name
         self.description = description
+        self.inputSchema = inputSchema
     }
 }
 
@@ -60,7 +62,10 @@ public actor MCPClient {
         let tools = result["tools"]?.arrayValue ?? []
         return tools.compactMap { tool in
             guard let name = tool["name"]?.stringValue else { return nil }
-            return MCPToolInfo(name: name, description: tool["description"]?.stringValue)
+            return MCPToolInfo(
+                name: name,
+                description: tool["description"]?.stringValue,
+                inputSchema: tool["inputSchema"] ?? .object(["type": .string("object")]))
         }
     }
 
