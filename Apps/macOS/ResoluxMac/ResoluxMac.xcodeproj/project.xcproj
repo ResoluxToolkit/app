@@ -27,6 +27,10 @@
       "kind": "local",
       "path": "../../../Features/Starter",
     },
+    {
+      "kind": "local",
+      "path": "../../../Features/Resolume",
+    },
   ],
   "files": [
     { "kind": "folder", "path": "ResoluxMac", "target-membership": [ "ResoluxMac" ] },
@@ -67,6 +71,15 @@
           "product-name": "StarterUI",
           "build-phase": { "build-phase": "frameworks" },
         },
+        {
+          "package": "Resolume",
+          "product-name": "Resolume",
+          "build-phase": { "build-phase": "frameworks" },
+        }, {
+          "package": "Resolume",
+          "product-name": "ResolumeUI",
+          "build-phase": { "build-phase": "frameworks" },
+        },
       ],
       "build-settings": {
         "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
@@ -74,7 +87,7 @@
         "CODE_SIGN_STYLE": "Automatic",
         "COMBINE_HIDPI_IMAGES": "YES",
         "CURRENT_PROJECT_VERSION": "1",
-        "ENABLE_APP_SANDBOX": "YES",
+        "ENABLE_APP_SANDBOX": "NO",
         "ENABLE_PREVIEWS": "YES",
         "ENABLE_USER_SELECTED_FILES": "readonly",
         "GENERATE_INFOPLIST_FILE": "YES",
