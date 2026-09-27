@@ -4,3 +4,4 @@ DerivedData/
 xcuserdata/
 *.xcscm
 swiftmodule.cache/
+build/
