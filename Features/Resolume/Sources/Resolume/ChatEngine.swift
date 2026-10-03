@@ -50,6 +50,10 @@ public actor ChatEngine {
     private let mcp: MCPClient
     private let maxToolRounds: Int
     private let policy: ToolPolicy
+    /// Diário do que escrevemos no set. `nil` é o default e mantém o motor igual
+    /// ao que era: o Cmd-Z do Arena não alcança automação nenhuma, então o rastro
+    /// tem que existir, mas ligar isso é escolha de quem monta o turno.
+    private let journal: WriteJournal?
     private var history: [ChatMessage] = []
     private var instructionsAdopted = false
     /// Nomes que o **servidor MCP** declarou em `tools/list`. É a única lista que
@@ -61,13 +65,15 @@ public actor ChatEngine {
         transport: any ChatBackendTransport = URLSessionChatTransport(),
         mcp: MCPClient,
         maxToolRounds: Int = 8,
-        policy: ToolPolicy = .readOnly
+        policy: ToolPolicy = .readOnly,
+        journal: WriteJournal? = nil
     ) {
         self.config = config
         self.transport = transport
         self.mcp = mcp
         self.maxToolRounds = maxToolRounds
         self.policy = policy
+        self.journal = journal
         history = [ChatMessage.system(Self.systemPrompt)]
     }
 
@@ -162,14 +168,44 @@ public actor ChatEngine {
                 action: arguments["action"]?.stringValue,
                 alwaysBlocked: decision.isNever)
         }
+        let tool = call.function.name
+        // Escrita permitida: antes de mudar o valor, guardamos o valor antigo onde
+        // existe leitura espelhada (`parameter`). É a nossa versão do undo que o
+        // Arena não nos dá pra automação.
+        let previous = await previousValue(tool: tool, arguments: arguments)
         do {
             let result = try await mcp.callTool(call.function.name, arguments: arguments)
+            await record(tool: tool, arguments: arguments, result: result.text,
+                         isError: result.isError, previous: previous)
             return result.text.isEmpty ? "{\"ok\":true}" : result.text
         } catch let error as MCPError {
+            await record(tool: tool, arguments: arguments, result: error.localizedDescription,
+                         isError: true, previous: previous)
             return "{\"error\":\"\(error.localizedDescription)\"}"
         } catch {
+            await record(tool: tool, arguments: arguments, result: error.localizedDescription,
+                         isError: true, previous: previous)
             return "{\"error\":\"\(error.localizedDescription)\"}"
         }
+    }
+
+    /// Valor anterior só faz sentido em escrita de `parameter`; leitura comum e
+    /// escrita sem paridade devolvem `nil` sem gastar chamada no Arena.
+    private func previousValue(
+        tool: String, arguments: [String: MCPValue]) async -> String? {
+        guard journal != nil, ToolPolicy.isWrite(tool: tool, arguments: arguments) else { return nil }
+        guard let readArguments = WriteJournal.mirroredRead(tool: tool, arguments: arguments) else { return nil }
+        return try? await mcp.callTool("parameter", arguments: readArguments).text
+    }
+
+    private func record(
+        tool: String, arguments: [String: MCPValue], result: String,
+        isError: Bool, previous: String?) async {
+        // Recusa de política nem chega aqui; erro de disco não pode matar o turno.
+        guard let journal, ToolPolicy.isWrite(tool: tool, arguments: arguments) else { return }
+        try? await journal.record(
+            tool: tool, arguments: arguments, result: result,
+            isError: isError, previous: previous.map { WriteJournal.cap($0) })
     }
 
     private func decodeArguments(_ raw: String) -> [String: MCPValue] {
@@ -185,7 +221,7 @@ public actor ChatEngine {
     nunca invente IDs — descubra-os com a própria ferramenta; confirme ações destrutivas \
     (clear/remove/delete) perguntando antes; responda ao operador em português, curto e sem \
     narrar cada tool call. Sobre o relógio: cada clipe tem o próprio modo de transporte \
-    (`clip.type`: Timeline, BPM Sync, SMPTE 1/2, Denon DJ, Pioneer DJ e as variantes (BPM)), então \
+    (`clip.transporttype`: Timeline, BPM Sync, SMPTE 1, SMPTE 2, Denon DJ, Pioneer DJ), então \
     o BPM global do `transport` não é necessariamente o andamento do show. Antes de informar BPM, \
     taxa ou posição, diga de qual fonte vem o número; se a fonte não estiver na resposta da \
     ferramenta, diga isso em vez de apresentar número solto. Restrição de uso (regra do operador, \

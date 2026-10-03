@@ -43,25 +43,95 @@ ao fato de que automação não entra no undo/redo do Arena -- foi projetado (§
 **nenhum arquivo existe ainda**: não há `WriteJournal.swift` nem nada chamado journal/audit
 no repo. Quem retomar começa por aí.
 
-## 1. Estado verificado (re-medido 2026-09-27, checkpoint 5)
-- `swift test --package-path Features/Resolume`: **50/50 passando** (tacada atual;
-  eram 46 antes dos 4 testes de preferência de backend). A suíte levou **211 s** --
-  o motivo é `liveLoopThroughOllama`, que falou com o Ollama vivo e demorou 211,8 s
-  sozinho. **Julgue pelo resultado, nunca pela duração**: loop real é não-determinístico.
+## 1. Estado verificado (re-medido 2026-09-27, checkpoint 7)
+- `swift test --package-path Features/Resolume`: **85/85 passando** (re-medido no checkpoint 9: 69 do checkpoint 7 + 6 da régua do piloto + 7 de sincronia — relógio do clipe). Última medição: **0,48 s**.
+  da grade/delta time + 1 dos endereços).. Duração da última medição: **0,5 s** -- e isso NÃO é a suíte
+  ficando rápida: os testes vivos têm `.enabled(if:)` amarrado ao provedor real
+  (`liveLoopThroughOllama` exige listener na 11434), e nem Ollama nem `fm serve`
+  estavam de pé na medição. **Suíte completa com provedor vivo continua ~211 s.**
+  Quer medir o loop de verdade: liga o Ollama e roda de novo; julgue pelo resultado,
+  nunca pela duração.
 - `xcodebuild -workspace ResoluxToolkit.xcworkspace -scheme ResoluxMac -configuration Debug`
   → **BUILD SUCCEEDED** já com o veto novo do §5 item 3. App em
   `~/Library/Developer/Xcode/DerivedData/ResoluxToolkit-*/Build/Products/Debug/ResoluxMac.app`.
-- Git: HEAD `97ba817 feat(app): janela de chat MCP no app macOS`. **Nada nosso
-  commitado.** Árvore = **12 modificados + 22 não rastreados** (inclui `docs/`,
-  `Packages/ResoluxDesignSystem/*` novos e `LocalChatBackend.swift`). Lotes de
-  commit no §9 — só com ordem dele. Ele quer ver funcionando no olho antes.
+- Git: HEAD `454f53e Update working tree` — os docs e todo o resto do checkpoint 5
+  **já entraram** (o "nada commitado" do checkpoint 5 ficou desatualizado). Árvore
+  agora = **5 modificados + 7 novos**: journal de escrita (§5 item 0) **e** a
+  chave Timeline/Performance com a calculadora de linha (§5 item 0b).
+  Modificados: `ChatEngine.swift`, `ToolPolicy.swift`, `MCPValue.swift`,
+  `docs/HANDOFF.md`, `docs/DUVIDAS.md`. Novos: `WriteJournal.swift`,
+  `WriteJournalTests.swift`, `OperationMode.swift`, `TimelineModel.swift`,
+  `TimelineCalculator.swift`, `ArenaREST.swift`, `TimelineCalculatorTests.swift`.
+  Nada commitado desde `454f53e`. Plano de lote no §9. Lote novo no §9
+  — só com ordem dele. Ele quer ver funcionando no olho antes.
 - Arena aberto, v7.28.0-rev24303. **Nunca matar o child MCP pertencente ao app
   dele.** Provedores locais de pé: `fm serve` :1976 (`system`,`pcc`) e Ollama
   :11434 (`qwen3:1.7b`, `qwen:0.5b`).
+- **Duração por clipe só existe no REST `:8080/api/v1`**, não nas 22 tools MCP
+  (varridas: nenhuma devolve duração). É a rota de leitura que ele mandou achar;
+  `ArenaREST.swift` é leitura pura, sem escrita, sem tocar nas portas dele.
+- O HUD de CPU/RAM/GPU/FPS do Arena **não é exportável**: não está no REST (258
+  rotas do swagger varridas), nem no MCP, nem em strings do binário. No modo
+  Performance medimos nós (`IOAccelerator` + `proc_pid_rusage`), calibrado contra
+  o HUD dele -- detalhes e armadilha do mach tick em DUVIDAS §13.10.
 - Disco sem problema. Memória persistente: **nada salvo** — só grava com a palavra
   "salva" dele. Dúvidas abertas ficam em `docs/DUVIDAS.md` (ele pediu pra anotar,
   não pra perguntar no meio do trabalho).
 ## 2. Regras do operador (valem acima de qualquer decisão técnica)
+- **Um operador por vez, quem chega primeiro trava.** Palavra dele (2026-09-27, tarde):
+  *"O operador que entrar primeiro trava a sessão. Nunca mais de uma pessoa mandando
+  comandos."* Duas topologias que o produto serve, ele mesmo desenhadas:
+  1. **Mac**: Humano ↔ IA ↔ MCP ↔ Arena — tudo local.
+  2. **iOS**: Humano (remoto) ↔ WAN ↔ IA ↔ MCP ↔ Arena.
+  Consequência que aceito como projeto, não como detalhe: escrita precisa de **posse
+  única** antes de acontecer. Não é UI ("mostra quem está"), é gate — segunda mão não
+  manda comando, e isso vale tanto pro celular quanto pro segundo Mac aberto na mesma
+  máquina. Quem decide posse não pode ser o `ChatEngine` (ele morre no "Desconectar");
+  tem que ser estado visto pelos dois lados.
+  **Refinamento dele (checkpoint 6):** o sistema é monousuário por construção — quem
+  "montou" o evento é o super admin, e só esse readquire a posse na reconexão. Mas
+  ele vetou preempção: *"não pode sair derrubando quem estiver, tem que ter uma janela
+  em que seja seguro isso acontecer."* Então readquirir é **pedido com efeito no
+  próximo momento seguro**, não corte imediato.
+  **A janela é declarada, não derivada (checkpoint 6):** palavra dele — *"na hora do
+  Hino Nacional, trocar de operador, nem fudendo."* Ou seja: existem **blocos críticos**
+  no evento, declarados por quem montou, e dentro deles nada muda, sem override
+  possível. Estado calmo do Arena (`crossfader {get}`, `transport {get}`) é condição
+  necessária, nunca suficiente: quieto e todo-mundo-olhando é justamente o pior caso.
+  Detalhe operacional que ele precisa votar: em evento ao vivo horário escrito atrasa,
+  então bloco crítico se **arma na mão**; agenda serve de lembrete, não de gatilho.
+  Teto de espera continua aberto. Tudo em DUVIDAS §10.
+- **Criticalidade vem de fora, nunca do Arena (checkpoint 6, DUVIDAS §11):** não existe
+  bit no Arena que diga "isso é crítico"; é propriedade do **evento**. O gate vai ler
+  um provedor de criticalidade, cuja implementação hoje é manual (armar/desarmar) e
+  amanhã é o **roteiro/rundown** — o mesmo artefato do historyboard que ele quer fazer
+  depois. Por isso o gate não conhece roteiro: se nascer amarrado no relógio, quando ele
+  chegar eu reescrevo a peça que mais pede confiança. Custos dessa costura e as três
+  perguntas restantes (onde o roteiro vive, manual-antes-do-roteiro, binário vs graduado)
+  em DUVIDAS §11.
+- **Três travas de formato já saem certas hoje (checkpoint 6, DUVIDAS §12).** Ele corrigiu
+  duas coisas minhas, e viraram requisito de código, não comentário:
+  - *"Isso me lembrou da parte de sync."* Aqui **"relógio" tem dois sentidos** e é onde o
+    sync morde: horário do dia (Hino às 18:00 — o gate **não** pode usar, atrasa) vs relógio
+    do Arena (transporte/BPM/posição; cada clipe tem seu `clip.type`, daí o system prompt já
+    exigir declarar a fonte antes de citar BPM). Em compensação, o `tools/list` do Arena traz
+    `create_ltc_timecode_bridge`, `sync_timecode`, `connect_lighting_console_osc` — se a venue
+    alimentar **LTC/timecode**, existe um relógio externo confiável (vem do equipamento, não
+    da parede nem do BPM). Aí hora no roteiro vira referência visual com marcador ancorado em
+    LTC. Gate continua lendo o bloco declarado; LTC corrobora, nunca decide. Esperando ele
+    dizer se alguma venue entrega LTC/lightboard com cue por timecode — define se o formato
+    nasce com campo de tempo ou sem tempo nenhum.
+  - *"DIA? — chega um minuto antes, a última alteração."* Rido merecido: roteiro **muda no
+    último minuto com o show correndo**. Então: (a) arquivo **lido quente**, sem snapshot
+    eterno e sem restart — se precisar reiniciar pra valer a mudança, o recurso é lixo no dia
+    do show; (b) bloco corrente referenciado por **ID estável, nunca por posição** — guardar
+    "bloco 3" quer dizer que inserir um bloco às 17:59 pode tirar o evento do estado crítico
+    **em silêncio**; (c) editar o rundown **nunca** desarma nem re-escolhe nada sozinho.
+    Journal registra ID de bloco, não índice. E como se edita fora do app (ele no console,
+    outro no notebook), "arquivo nosso editável por fora" subiu de preferência para requisito.
+  **Nenhum código de lock existe ainda** — procurado: só há `NSLock` dentro do
+  `ProcessMCPTransport`, que protege fila de requisição de um único processo, não
+  identidade de operador. **(medido)**
 - **Arena é imutável.** Nada do que vem de fábrica se altera: Preferences, Wire,
   config de OSC/REST/MIDI. A gente se adapta ao que ele entrega, porque "ninguém
   sabe mexer nesse tipo de coisa". Operar o set ao vivo pode (quando ele armar);
@@ -246,6 +316,30 @@ no repo. Quem retomar começa por aí.
   ("Auth required"), então não consegui validar pelo lado do servidor. **Ficou
   combinado com o operador: eu produzo os pacotes, ele sobe.** Ou seja, backup de
   binário grande pelo Drive é trabalho dele, não meu. **(medido)**
+
+### Eixo novo: o relógio de cada clipe vem escrito no payload (checkpoint 9)
+- `transporttype` aparece **73x** em `/tmp/comp2.json`, `ParamChoice`, e o payload entrega
+  `options` inteira: `["Timeline","BPM Sync","SMPTE 1","SMPTE 2","Denon DJ","Pioneer DJ"]` -- idêntica
+  ao dropdown fotografado por ele, na mesma ordem. `value` das 73 = `"Timeline"`, `index = 0`
+  (= fábrica, confirmado por Preferences → Defaults nas capturas dele). Contrato `RelogioDoClipe`
+  validado por round-trip em teste, não por chute.
+- `playmode` aparece **14x** (só nos clipes com `transport`), `options =
+  ["Loop","Bounce","Random","Play Once & Clear","Play Once & Hold"]`, `value` das 14 = `"Loop"`.
+  Ponto verde na foto dele estava em `Play Once & Clear` ("acabou, morreu"). Nenhum código de soma
+  depende disso ainda -- registrado, com dúvida aberta em DUVIDAS §14.2.
+- `duration_type` tem **três vocabulários diferentes por nível** (camada
+  `Clip Transport|Beats|Seconds`; clipe `Layer Determined|Transport|Beats|Seconds`; composição inclui
+  `Longest Clip`). Por isso virou enum `RegimeDePiloto`, não string.
+- BPM mora em `composition.tempocontroller.tempo` (`ParamRange 20...500`, hoje 120) -- campo que
+  **não existia** na nossa leitura anterior, e sem ele o regime `Beats` não vira tempo. Sem BPM
+  devolvemos `.nenhuma`; nunca chutamos 120.
+- Swagger deles (<http://192.168.0.104:8080/api/docs/example/>) agrupa **por objeto** (11 tags /
+  258 paths), **não por janela** -- a "janela escondida" que ele procurou não existe na doc. Zero
+  ocorrências de "timecode" nas 258 rotas. O exemplo oficial deles é SPA React cujo bundle
+  (`/tmp/exmain.js`, 170 KB) usa **WebSocket + `subscribe` + `parameter/by-id`** sobre a mesma porta
+  — é o canhão de referência pra assinatura em tempo real (OSC já dá playhead a ~50 Hz sem tocar em
+  config nenhum).
+
 
 ### Formato de vídeo: DXV3 e ponto (decisão do operador)
 - Verbatim dele: *"Cara, É DXV3 e ponto!"* e *"DXV é o formato proprietário deles."*
@@ -545,7 +639,36 @@ no repo. Quem retomar começa por aí.
    avisam que snapshot custa token. Ponto único de inserção: `ChatEngine.execute(...)`, que já
    é onde passam tanto o `tool_calls` nativo quanto o resgate de texto. Injetar com default
    desligado pra não quebrar os 50 testes. Depois: UI "últimas mudanças" com o cabeçalho honesto
-   *estas são nossas; o Cmd-Z do Arena não desfaz*. **Nada disso foi escrito ainda.**
+   *estas são nossas; o Cmd-Z do Arena não desfaz*.
+   **STATUS (checkpoint 6): núcleo FEITO e testado.** `WriteJournal.swift` existe
+   (append JSON-lines, um arquivo por sessão, cap de 200 chars, leitura do mais
+   recente pro mais antigo, linha corrompida pulada); `ChatEngine` injeta com
+   `journal: nil` por default — os antigos seguem intocados, os 7 novos cobrem
+   registrar-com-anterior, recusa-não-registra, leitura-não-registra, espelhamento
+   só-em-`parameter`, corte, ordem e corrupção. Armadilha que mordeu de verdade:
+   `JSONEncoder` escapa barra (`tools\/call`), entao filtro cru por `tools/call`
+   devolve vazio e teste de ausencia passa POR ACIDENTE — normalizar barra antes de
+   filtrar. **Resta:** (a) UI "últimas mudanças"; (b) amarrar `sessionID` à posse do
+   operador — DUVIDAS §10.4, espera voto dele porque muda o formato do registro.
+0b. **A chave Timeline/Performance + a calculadora de tempo** (checkpoint 7).
+   Palavra dele: *"Timeline: Calcula. Performance: Mede."* -- Ableton Live,
+   Session vs Arrangement. Especificação inteira em DUVIDAS §13.
+   **STATUS (checkpoint 7): núcleo FEITO e testado.** A chave existe --
+   `OperationMode.swift`: `timeline` oferece cálculo+monitoração, `performance`
+   só monitoração, recusa acionável em `ModeGate.refusal`. A calculadora existe --
+   `TimelineCalculator.swift` lê a grade crua do REST, classifica o slot, resolve
+   alto piloto (`Layer Determined` herda da camada), funde rolo encadeado num bloco
+   só (Merge, palavra dele) e soma em **delta time** (`duracao / speed`, frames
+   nunca entram). Taxonomia dos slots em `TimelineModel.swift` (vazio/imagem/áudio/
+   vídeo/gerador x execução x barramento, com `.desconhecido` onde o Arena não
+   conta). Cliente `ArenaREST.swift` com `Endpoint` injetável -- os testes rodam sem
+   rede. **Não confundir com `ToolPolicy.Mode`**: permissão é um eixo, serviço é
+   outro; performance pode ser `readWrite`. **Resta:** (a) plugar no `ChatEngine`
+   com default `.timeline` e recusar cálculo em Performance; (b) telemetria como
+   módulo próprio (medida isolada não é produto, limiar de aviso é voto dele);
+   (c) Picker na UI **só se ele pedir**. Toda a especificação que gerou isso está
+   em DUVIDAS §13 (delta time, ±32768 fora da conta, imagem 1 s, synth morto,
+   epoch segundos, rename com `#`).
 
 Ordem que faz sentido, um item por tacada:
 1. **Deixar ele ver o humano↔bot funcionando** antes de qualquer commit (pedido
@@ -619,6 +742,53 @@ Ordem que faz sentido, um item por tacada:
   chamada como texto e engolimos com `ToolCallTextRescue`. É escolha de produto e está
   na mesa pra ele (§4/`docs/DUVIDAS.md` item 3).
 
+- **Canal remoto = WebSocket (decisão dele com meu voto técnico, 2026-09-27).**
+  Presença e posse de sessão são semântica **bidirecional**: o lado remoto precisa
+  dizer "estou aqui, quero escrever" e receber "não, quem tem a posse é X". SSE é
+  downlink puro (todo upstream viraria POST separado, dois canais, duas verdades) e
+  polling HTTP não carrega presença nenhuma -- vira adivinhação com atraso. WS dá os
+  dois sentidos numa conexão só. Com três condições duras, sem as quais não vale:
+  - **Posse autoritativa mora no Mac**, não no celular. O Mac é quem fala com o
+    Arena; o lease tem de estar onde a escrita acontece. Segundo cliente recebe
+    recusa explícita **nomeando** quem está na posse (senão ele insiste achando que
+    é bug de rede).
+  - **Lease com TTL + heartbeat obrigatório.** iOS mata o socket em background sem
+    avisar; sem TTL o show fica refém de um app morto. E no reconnect **nunca**
+    re-adquirir posse sozinha se outro operador já pegou -- reconectar é pedido, não
+    direito.
+  - **Transporte chega por túnel que ele mesmo levanta.** Regra permanente: do meu
+    lado Tailscale tem zero automação (nem probe de `tailscale status`). Entrego o
+    comando, ele roda. Nada de bindar em `*` nem inventar superfície TCP nossa.
+  Local (topologia 1) não precisa de nada disso: já é `ProcessMCPTransport`, stdio,
+  sem rede. O WS só serve a topologia 2 -- e **"remoto" não quer dizer WAN**: pode
+  ser o mesmo iPad na mesma rede do Mac. Isso não afrouxa nada, só muda o motivo:
+  - **Rede local não é rede confiável.** Wi-Fi de casa tem celular de visita, TV,
+    outro laptop; e o próprio show acontece em rede de venue, que é o pior lugar
+    possível pra assumir confiança. Então o WS exige pareamento/token **mesmo em
+    LAN** -- posse única sem autenticação é só um nome bonito pra "quem chegar
+    primeiro manda". A regra que isso aperta: hoje `LocalChatBackend.discover()`
+    sonda **só loopback**; aceitar cliente LAN significa encostar numa interface
+    não-loopback, e isso é decisão dele, não minha. Continuo sem bindar em `*`.
+  - **Descoberta sem campo de IP**, respeitando a regra zero-config: Bonjour
+    (já provado que resolve -- foi assim que achou o Arena sozinho via
+    `_http._tcp.local`), não caixinha de endereço.
+  - Em LAN o TTL fica **mais** importante, não menos: iPad em Wi-Fi perde o socket
+    ao virar tela/block e ao trocar de AP, sem nenhum aviso chegando no Mac.
+
+### Legenda das tags de incerteza no código (vocabulário novo, checkpoint 9)
+Ele pediu pra não deixar `chute:` solto: *"Coloca uma tag de não documentado ou instável."* Virou
+duas tags, com significados diferentes, e é assim que se lê um `grep`:
+- **`nao documentado:`** -- o comportamento existe e eu tenho quase certeza, mas **nenhuma página da
+  Resolume escreve sobre ele**. Risco aqui é doc deles ficar muda, não minha hipótese estar errada.
+  Hoje: `autopilot.set` vetado permanentemente em `ToolPolicy.neverActions`.
+- **`instavel:`** -- é **nossa escolha de desenho** com número que ainda não medimos na condição
+  certa. Aqui o risco é meu, e a saída é medir, não consultar doc. Hoje: piloto × `speed` em
+  `SlotState.effectiveMS`, piloto reassumindo relógio em clipe SMPTE, e o default de
+  `ModeGate.defaults`.
+Regra operacional: `grep -rn "instavel:\|nao documentado:" Features/Resolume/Sources` devolve a lista
+do que ainda não tem prova. Toda entrada dessa lista tem medida barata que a fecha -- nenhuma exige
+inversão de decisão dele.
+
 ## 7. Coisas que já afirmamos erradas e foram corrigidas
 - "Reaper fica na rack" — li torto; objetivo era tirar o DAW. Depois ele tirou o
   DAW do desenho inteiro.
@@ -636,8 +806,44 @@ Ordem que faz sentido, um item por tacada:
   essa classe de erro próprio não voltar a se disfarçar de OK. **(autocrítica)**
 - `lsof -p PID -i` sem `-a` é OR, não AND — já me fez afirmar "sem sockets" com
   evidência falsa. UDP não tem LISTEN: `lsof -nP -iUDP`.
+- **"Imagem herda `duration_ms` do arquivo"** — meu erro de desenho, pego pelo teste
+  antes de eu notar. PNG não tem tempo de tela; deixar o arquivo falar inflaria a
+  linha com tempo que nenhum operador programou. Precedência corrigida: transporte >
+  mídia (só áudio/vídeo) > padrão da casa (só imagem) > nenhuma. (DUVIDAS §13.5)
+- **"FrameRate 0 = fps zero"** — `composition.framerate.value = 0.0` é **Auto**. Li
+  o número sem o documento nomear a unidade, exatamente o erro que a regra §13.4
+  proíbe. **(medido)**
+- **"Array do REST é posição"** — `deck.layers` e `layer.columns` vêm vazios. Grade
+  lida por array sairia às avessas; endereço é `layers/{L}/clips/{C}` 1-based.
+
+- **"Clipe em SMPTE entra na soma"** -- bug real de desenho meu, exposto pela foto dele do dropdown:
+  a calculadora somava qualquer clipe com número, inclusive um escravizado a timecode externo, como se
+  o *play* fosse ato nosso. A regra que proibe isso já estava escrita há checkpoints ("em situação
+  síncrona o play nunca é ato nosso"); eu só não tinha aplicado na soma. Corrigido em
+  `SlotState.effectiveMS` com teste. **(autocrítica)**
+- **"Quase afirmei `duration_type` ausente na camada"** -- meu `print` acessou `autopilot` pelo caminho
+  errado e o campo sumiu da saída. Regra que fica: **leia o payload antes de afirmar ausência**;
+  print quebrado é tão perigoso quanto doc mentirosa. **(autocrítica)**
+- **Teste contrato mal escrito por mim**: afirmei `nomeNoArena.contains(nome)` cobrindo as 6 opções e
+  o `.mesa` junta Denon+Pioneer num nome só — falhou na hora, certo ele. Virou `nomesNoArena:
+  [String]` com round-trip. O teste me pegou antes do usuário, que é o papel dele.
+- **`durationSource` sem número**: meu teste esperava `.nenhuma` num caso `Beats` sem BPM; o código
+  devolve `.piloto` com `durationMS == nil`, e o código está mais certo -- manter a fonte preserva o
+  diagnóstico ("faltou o BPM") em vez de apagar a causa. Asserção ajustada ao código, não o contrário.
+
+
+- **"`clip.type`" no system prompt era campo fantasma -- e eu tinha escrito teste travando o
+  fantasma.** O prompt ensinava o modelo a olhar `clip.type`; medido nos 72 clipes do payload vivo,
+  **não existe chave `type` em clipe nenhum** -- o nome real é `transporttype`. Pior: o teste
+  `#expect(prompt.contains("clip.type"))` congelava o erro, então ele passava verde. Corrigido nas
+  duas pontas: prompt agora diz `clip.transporttype` com as 6 opções exatas, e o teste passou a
+  exigir a **ausência** de `clip.type`. Lição: testar presença de string no prompt só prova que
+  escrevi a string, nunca que ela corresponde à máquina. **(medido + autocrítica)**
 
 ## 8. Armadilhas de ambiente (não repagar)
+- String interpolada escrita como `\#(i)` — derrubou o build de testes três vezes
+  (mais dois trechos mutilados no mesmo arquivo). Se `--build-tests` morrer em
+  `invalid escape sequence`, é isso, não mistério do toolchain.
 - Sudo-free .pkg: `brew fetch --cask X` → `open "$(brew --cache --cask X)"`.
 - `rm -f/-rf` é rejeitado pela sandbox mesmo com approval `never`; nunca pedir
   escalada nesse perfil.
@@ -652,9 +858,17 @@ Ordem que faz sentido, um item por tacada:
 - Ports ocupadas neste Mac: `5000`/`7000-tcp`/`8080` (AirPlay Receiver + Arena);
   livres: `5001`, `8937`, `43117`.
 
-## 9. Plano de commit (re-contado no checkpoint 5, quando ele mandar)
-Ele quer **ver funcionando antes de commitar**. Estado real da árvore agora: **12
-modificados + 22 não rastreados**, HEAD `97ba817`. Cinco lotes Conventional Commits:
+## 9. Plano de commit (re-contado no checkpoint 7, quando ele mandar)
+Ele quer **ver funcionando antes de commitar**. Os lotes 1–4 do checkpoint 5 **já
+foram despejados** em `454f53e` ("Update working tree" — commit único, não em lotes;
+registrado pra não relançar plano velho). O que falta commitar agora são dois lotes,
+o do journal e o da calculadora:
+- `feat(resolume): diário de escrita (rastro do que o Cmd-Z do Arena não alcança)` —
+  `WriteJournal.swift`, `WriteJournalTests.swift`, `ChatEngine.swift`,
+  `ToolPolicy.swift`. Atenção à armadilha de sempre: os dois `docs/` modificados
+  vão junto ou num `docs:` separado — nunca deixar o doc descrevendo código órfão.
+
+Histórico dos lotes originais (checkpoint 5), pra referência do que já entrou:
 1. `fix(resolume): timeout do transporte acompanha turno local (300 s)` --
    `MCPTransport.swift`, `ProcessMCPTransport.swift`, `UnixSocketProbe.swift`,
    `ResolumeApp.swift` (prontidão pelo socket) + `TransportTimeoutTests.swift`,
@@ -674,6 +888,11 @@ modificados + 22 não rastreados**, HEAD `97ba817`. Cinco lotes Conventional Com
    `ToolCallTextRescueTests.swift`, `LiveLoopTests.swift`, `RealServerSmokeTests.swift`.
 5. `fix(resolume): veto permanente no gate de escrita` -- `ToolPolicy.swift` +
    `ToolPolicyTests.swift`, `ToolAllowlistTests.swift`.
+- `feat(resolume): chave Timeline/Performance + calculadora de tempo` --
+  `OperationMode.swift`, `TimelineModel.swift`, `TimelineCalculator.swift`,
+  `ArenaREST.swift`, `MCPValue.swift` (+`doubleValue`/`intValue`/`parameterValue`)
+  + `TimelineCalculatorTests.swift`. Lote independente: nada acima depende dele, e
+  `MCPValue` já entrou no uso do journal sem quebrar os testes antigos.
 **Armadilha de ordem (leia antes de commitar):** `Package.swift` está modificado junto
 com fontes novas; se o lote 4 entrar antes do 2 e do 3, o commit fica sozinho sem
 compilar. A sequência acima é dependente de propósito. Se ele quiser histórico
@@ -690,3 +909,7 @@ Podem sumir a qualquer momento; nada essencial depende deles.
   `/tmp/ladder2.log` está **stale/vazio**: se precisar, re-rodar `fmladder2.py`.
 - `/tmp/oscsniff.py` (escuta da 7001), `/tmp/bindprobe.py`, `/tmp/tdmcp-audit/repo`,
   `/tmp/fmprobe/`, `/tmp/sseprobe.py`, `/tmp/afm_choice2.py`.
+- `/tmp/comp.json` — `GET /composition` vivo (composição "Spike"): melhor
+  candidato a fixture de teste que existe. `/tmp/sw.yaml` — swagger do REST, 258
+  rotas. `/tmp/perf6.swift` (GPU via IOAccelerator) e `/tmp/rus5.swift`
+  (CPU/RAM via `proc_pid_rusage`), os dois probes compilados e calibrados.

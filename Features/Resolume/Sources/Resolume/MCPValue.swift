@@ -61,6 +61,30 @@ public enum MCPValue: Codable, Equatable, Sendable {
         if case .bool(let value) = self { value } else { nil }
     }
 
+    /// Numero como Double, aceitando os dois casos que o JSON do Arena usa:
+    /// `5.0` (ParamRange devolve float) e `5` (inteiros). Sem isto teriamos que
+    /// re-serializar cada campo pra ler um numero.
+    public var doubleValue: Double? {
+        switch self {
+        case .double(let value): return value
+        case .int(let value): return Double(value)
+        default: return nil
+        }
+    }
+
+    public var intValue: Int? {
+        switch self {
+        case .int(let value): return value
+        case .double(let value): return value.rounded() == value ? Int(value) : nil
+        default: return nil
+        }
+    }
+
+    /// Valor de um `ParamRange`/`ParamChoice`: o campo `value` da embrulhadura.
+    public var parameterValue: MCPValue? {
+        objectValue?["value"]
+    }
+
     public subscript(key: String) -> MCPValue? {
         objectValue?[key]
     }

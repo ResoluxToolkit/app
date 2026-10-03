@@ -81,7 +81,7 @@ public struct ToolPolicy: Sendable, Equatable {
     /// - `batch` executa uma lista de operações quaisquer e o payload não é
     ///   inspecionável ação por ação — seria a porta dos fundos das duas acima.
     /// Nomes conferidos no `tools-schema.json` (Arena 7.28.0-rev24303 vivo).
-    /// Um caso leva `chute:` no comentário: prefiro recusar demais a inventar
+    /// Um caso leva `nao documentado:` abaixo: prefiro recusar demais a inventar
     /// comportamento do produto.
     static let neverActions: [String: Set<String>] = [
         "clip": ["set_transport", "clear", "clear_track", "merge", "eject"],
@@ -91,7 +91,7 @@ public struct ToolPolicy: Sendable, Equatable {
         "deck": ["delete", "clear", "eject", "open"],
         "composition": ["open", "new", "save", "save_as", "grow", "eject", "undo", "redo"],
         "effect": ["remove", "clear"],
-        // chute: `set` do autopilot entrega ao Arena a troca automática de
+        // nao documentado: `set` do autopilot entrega ao Arena a troca automática de
         // conteúdo. Com um bot no circuito, dois autômatos brigando pelo mesmo
         // crossfader não tem como dar certo.
         "autopilot": ["set"],
@@ -118,6 +118,15 @@ public struct ToolPolicy: Sendable, Equatable {
     /// `true` quando a chamada pode rodar.
     public func allows(tool: String, arguments: [String: MCPValue]) -> Bool {
         decide(tool: tool, arguments: arguments) == .allow
+    }
+
+    /// `true` quando a chamada **altera** o set (não só o lê), assumindo que foi
+    /// permitida. É como o diário de escrita sabe o que registrar: leitura nunca
+    /// entra no journal. Sem `action` declarada tratamos como escrita — mesma
+    /// regra dura que já governa o bloqueio.
+    public static func isWrite(tool: String, arguments: [String: MCPValue]) -> Bool {
+        guard let action = arguments["action"]?.stringValue else { return true }
+        return safeActions[tool]?.contains(action) != true
     }
 
     /// Texto devolvido ao modelo quando bloqueamos. Precisa ser acionável: sem

@@ -80,7 +80,10 @@ func promptTeachesPerClipClockSource() {
     // necessariamente o andamento do show. Sem isso o assistente informa número
     // solto pro VJ no meio da performance.
     let prompt = ChatEngine.systemPrompt
-    #expect(prompt.contains("clip.type"))
+    #expect(prompt.contains("clip.transporttype"))
+    // `clip.type` era o nome que ESTAVA no prompt e nao existe no payload (medido:
+    // nenhuma chave `type` nos 72 clipes). Congelar a ausencia evita o fantasma.
+    #expect(!prompt.contains("clip.type"))
     #expect(prompt.contains("BPM Sync"))
     #expect(prompt.contains("SMPTE"))
     #expect(prompt.contains("Pioneer"))

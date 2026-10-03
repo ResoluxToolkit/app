@@ -15,7 +15,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             StarterView(report: report)
-                .navigationTitle("Resolux")
+                .navigationTitle("RTK Assistant")
         }
     }
 }
