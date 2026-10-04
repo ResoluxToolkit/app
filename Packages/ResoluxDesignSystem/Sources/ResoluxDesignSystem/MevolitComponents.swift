@@ -1,3 +1,4 @@
+import BorderBeamKit
 import SwiftUI
 
 // Portado de `Mevolit/Components.swift` do operador: geometria, opacidades e
@@ -75,6 +76,20 @@ public struct GlassCard<Content: View>: View {
     }
 
     public var body: some View {
+        if beam {
+            card.borderBeam(
+                .md,
+                colorVariant: .ocean,
+                theme: .dark,
+                active: beamActive,
+                borderRadius: cornerRadius
+            )
+        } else {
+            card
+        }
+    }
+
+    private var card: some View {
         content()
             .padding(20)
             .background {
@@ -110,11 +125,6 @@ public struct GlassCard<Content: View>: View {
                         ),
                         lineWidth: 1
                     )
-            }
-            .overlay {
-                if beam {
-                    BeamStroke(cornerRadius: cornerRadius, active: beamActive)
-                }
             }
             .shadow(color: Color.black.opacity(0.4), radius: 24, x: 0, y: 12)
     }

@@ -138,7 +138,7 @@ public struct ResolumeChatView: View {
 
     @ViewBuilder private var avisoInicial: some View {
         if model.engine == nil, case .idle = model.phase {
-            GlassCard(cornerRadius: 18) {
+            GlassCard(beam: true, cornerRadius: 18) {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Abra o Arena e clique em conectar", systemImage: "sparkles")
                         .font(.system(size: 14, weight: .bold))
@@ -293,10 +293,18 @@ public struct ResolumeChatView: View {
             GlowButton(
                 title: model.phase == .idle ? "Conectar ao Arena" : "Tentar de novo",
                 symbol: "bolt.horizontal.circle",
-                spinning: model.phase == .connecting
+                spinning: model.phase == .connecting,
+                beam: false
             ) {
                 model.connect(policyMode: policyMode)
             }
+            .borderBeam(
+                .pulseInner,
+                colorVariant: .ocean,
+                theme: .dark,
+                active: model.phase == .connecting,
+                borderRadius: 24
+            )
         }
     }
 }

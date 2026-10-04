@@ -64,6 +64,20 @@ public struct ChatCompletionRequest: Encodable, Sendable {
     /// Medido: com `stream:false` ele devolve JSON puro e HTTP 200.
     /// Optional para não mandar o campo para backends que não o entendem.
     public var stream: Bool?
+
+    public init(
+        model: String,
+        messages: [ChatMessage],
+        tools: [ChatToolSpec]? = nil,
+        tool_choice: String? = nil,
+        stream: Bool? = nil
+    ) {
+        self.model = model
+        self.messages = messages
+        self.tools = tools
+        self.tool_choice = tool_choice
+        self.stream = stream
+    }
 }
 
 public struct ChatCompletionResponse: Decodable, Sendable {

@@ -40,9 +40,15 @@ public final class AssistantModel {
     }
     private var fmSession: LanguageModelSession?
     private var gatewayEngine: ChatEngine?
+    private var gatewayPolicyMode: ToolPolicy.Mode?
     private var mcpTask: Task<Void, Never>?
     private var mcpClient: MCPClient?
     private var mcpTransport: ProcessMCPTransport?
+    private var fmToolInfos: [MCPToolInfo] = []
+    private var fmPolicyMode: ToolPolicy.Mode?
+    // Um diário por sessão do Assistente: gateway configurado, gateway local e
+    // fallback FM escrevem no mesmo arquivo. Toda escrita permitida tem rastro.
+    private let writeJournal = WriteJournal()
 
     private var isMCPReady: Bool {
         if case .ready = mcpPhase { true } else { false }
@@ -128,13 +134,15 @@ public final class AssistantModel {
                 let fmTools = MCPFoundationModelToolFactory.makeTools(
                     from: filtered,
                     client: client,
-                    policy: ToolPolicy(mode: .readOnly))
+                    policy: await MainActor.run { ProviderSettingsStore.shared.toolPolicy },
+                    journal: await MainActor.run { self?.writeJournal })
                 await MainActor.run {
                     self?.install(
                         fmTools: fmTools,
                         client: client,
                         toolCount: infos.count,
-                        fmToolCount: filtered.count)
+                        fmToolCount: filtered.count,
+                        toolInfos: filtered)
                 }
             } catch {
                 let diagnostics = await transport.stderrDiagnostics()
@@ -157,7 +165,8 @@ public final class AssistantModel {
         fmTools: [any Tool],
         client: MCPClient,
         toolCount: Int,
-        fmToolCount: Int
+        fmToolCount: Int,
+        toolInfos: [MCPToolInfo]
     ) {
         if let oldSession = fmSession {
             fmSession = LanguageModelSession(
@@ -168,12 +177,38 @@ public final class AssistantModel {
         mcpClient = client
         mcpPhase = .ready(toolCount: toolCount)
         self.fmToolCount = fmToolCount
+        fmToolInfos = toolInfos
     }
 
     private func sendViaFM(_ text: String) async throws -> String {
-        guard let session = fmSession else {
+        guard let oldSession = fmSession else {
             throw AssistantError.fmUnavailable
         }
+        let policy = ProviderSettingsStore.shared.toolPolicy
+        if fmPolicyMode == policy.mode, let session = fmSession {
+            let response = try await session.respond(to: text)
+            isFMFallbackActive = true
+            return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        guard let client = mcpClient else {
+            let response = try await oldSession.respond(to: text)
+            isFMFallbackActive = true
+            return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let tools = MCPFoundationModelToolFactory.makeTools(
+            from: fmToolInfos,
+            client: client,
+            policy: policy,
+            journal: writeJournal)
+        let session = LanguageModelSession(
+            model: SystemLanguageModel.default,
+            tools: tools,
+            transcript: oldSession.transcript)
+        fmSession = session
+        fmPolicyMode = policy.mode
+        fmToolCount = fmToolInfos.count
         let response = try await session.respond(to: text)
         isFMFallbackActive = true
         return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -184,19 +219,22 @@ public final class AssistantModel {
             throw AssistantError.gatewayUnavailable
         }
         let configured = ProviderSettingsStore.shared.persistedSettings
+        let policy = ProviderSettingsStore.shared.toolPolicy
         if configured.isConfigured {
             guard let engine = configuredEngine(
                 settings: configured,
-                client: client) else {
+                client: client,
+                policy: policy) else {
                 throw AssistantError.gatewayUnavailable
             }
             gatewayEngine = engine
+            gatewayPolicyMode = policy.mode
             let answer = try await engine.send(text)
             activeGateway = nil
             return answer
         }
 
-        if let engine = gatewayEngine {
+        if let engine = gatewayEngine, gatewayPolicyMode == policy.mode {
             return try await engine.send(text)
         }
 
@@ -211,8 +249,10 @@ public final class AssistantModel {
                 model: backend.model,
                 toolAllowlist: backend.toolAllowlist),
             mcp: client,
-            policy: ToolPolicy(mode: .readOnly))
+            policy: policy,
+            journal: writeJournal)
         gatewayEngine = engine
+        gatewayPolicyMode = policy.mode
         let answer = try await engine.send(text)
         activeGateway = backend
         return answer
@@ -220,7 +260,8 @@ public final class AssistantModel {
 
     private func configuredEngine(
         settings: ProviderSettings,
-        client: MCPClient
+        client: MCPClient,
+        policy: ToolPolicy
     ) -> ChatEngine? {
         guard let endpoint = settings.chatEndpointURL else { return nil }
         return ChatEngine(
@@ -229,7 +270,8 @@ public final class AssistantModel {
                 apiKey: settings.token,
                 model: settings.modelID),
             mcp: client,
-            policy: ToolPolicy(mode: settings.isReadOnly ? .readOnly : .readWrite))
+            policy: policy,
+            journal: writeJournal)
     }
 
     private static func message(
@@ -251,6 +293,9 @@ public final class AssistantModel {
 @available(macOS 26.0, *)
 public struct AssistantView: View {
     @State private var model = AssistantModel()
+    @State private var settings = ProviderSettingsStore.shared
+    @State private var scrolledToLineID: AssistantModel.Line.ID?
+    @FocusState private var isMessageFocused: Bool
 
     public init() {}
 
@@ -271,6 +316,9 @@ public struct AssistantView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             Task { model.connectMCP() }
+            Task { @MainActor in
+                isMessageFocused = true
+            }
         }
     }
 
@@ -332,36 +380,48 @@ public struct AssistantView: View {
     }
 
     private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    if model.lines.isEmpty {
-                        initialCard
-                    }
-                    ForEach(model.lines) { line in
-                        bubble(for: line)
-                            .id(line.id)
-                    }
-                    if model.isBusy {
-                        HStack(spacing: 10) {
-                            ThinkingOrb()
-                            Text("pensando…")
-                                .font(.footnote)
-                                .foregroundStyle(Palette.muted)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.leading, 4)
-                    }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                if model.lines.isEmpty {
+                    initialCard
                 }
-                .padding(.vertical, 10)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .onChange(of: model.lines.count) {
-                guard let last = model.lines.last else { return }
-                withAnimation(.easeOut(duration: 0.25)) {
-                    proxy.scrollTo(last.id, anchor: .bottom)
+                ForEach(model.lines) { line in
+                    bubble(for: line)
+                        .id(line.id)
+                }
+                if model.isBusy {
+                    HStack(spacing: 10) {
+                        ThinkingOrb()
+                        Text("pensando…")
+                            .font(.footnote)
+                            .foregroundStyle(Palette.muted)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.leading, 4)
                 }
             }
+            .padding(.vertical, 10)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .defaultScrollAnchor(.bottom)
+        .scrollPosition(id: $scrolledToLineID, anchor: .bottom)
+        .onChange(of: model.lines.count) {
+            scrollToEndIfEnabled()
+        }
+        .onChange(of: model.isBusy) {
+            if model.isBusy {
+                scrollToEndIfEnabled()
+            }
+        }
+        .task {
+            scrollToEndIfEnabled()
+        }
+    }
+
+    private func scrollToEndIfEnabled() {
+        guard settings.isAutoScrollEnabled, let last = model.lines.last else { return }
+        withAnimation(.easeOut(duration: 0.25)) {
+            scrolledToLineID = last.id
         }
     }
 
@@ -479,9 +539,10 @@ public struct AssistantView: View {
 
     private var inputBar: some View {
         HStack(spacing: 10) {
-            TextField("Fala com o Assistente…", text: $model.draft, axis: .vertical)
+            TextField("Falar com o Assistente…", text: $model.draft, axis: .vertical)
                 .lineLimit(1...4)
                 .textFieldStyle(.plain)
+                .focused($isMessageFocused)
                 .foregroundStyle(Palette.foreground)
                 .onSubmit {
                     Task { await model.sendDraft() }

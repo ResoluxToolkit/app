@@ -9,9 +9,11 @@ public struct ProviderSettingsView: View {
     public init() {}
 
     public var body: some View {
-        NavigationStack {
-            ZStack {
-                AuroraBackground()
+        ZStack {
+            AuroraBackground()
+
+            VStack(spacing: 0) {
+                header
 
                 ScrollView {
                     VStack(spacing: 18) {
@@ -38,11 +40,19 @@ public struct ProviderSettingsView: View {
                                 }
                                 .toggleStyle(.switch)
 
-                                HStack {
+                                HStack(spacing: 10) {
                                     Text(model.isReadOnly ? "MCP fica read-only" : "MCP pode escrever")
                                         .font(.caption)
                                         .foregroundStyle(Palette.muted)
                                     Spacer()
+                                    GlowButton(
+                                        title: "Testar modelo",
+                                        symbol: "antenna.radiowaves.left.and.right",
+                                        spinning: model.isTestingModel
+                                    ) {
+                                        Task { await model.testModel() }
+                                    }
+                                    .disabled(model.isTestingModel)
                                     GlowButton(title: "Salvar", symbol: "checkmark.circle") {
                                         do {
                                             try model.save()
@@ -57,6 +67,31 @@ public struct ProviderSettingsView: View {
                                         .font(.footnote)
                                         .foregroundStyle(Palette.muted)
                                 }
+                                if let message = model.testMessage {
+                                    Text(message)
+                                        .font(.footnote)
+                                        .foregroundStyle(Palette.muted)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        GlassCard(cornerRadius: 22) {
+                            VStack(alignment: .leading, spacing: 16) {
+                                Label("Conversa", systemImage: "bubble.left.and.bubble.right")
+                                    .font(.headline)
+                                    .foregroundStyle(Palette.foreground)
+
+                                Toggle(isOn: $model.isAutoScrollEnabled) {
+                                    Text("Auto rolagem da conversa")
+                                        .font(.subheadline)
+                                        .foregroundStyle(Palette.foreground)
+                                }
+                                .toggleStyle(.switch)
+
+                                Text("Rola pro fim quando chega mensagem nova.")
+                                    .font(.caption)
+                                    .foregroundStyle(Palette.muted)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -66,12 +101,36 @@ public struct ProviderSettingsView: View {
                             .foregroundStyle(Palette.muted)
                     }
                     .frame(maxWidth: 620)
-                    .padding(.horizontal, 16)
                     .padding(.vertical, 20)
                 }
             }
-            .navigationTitle("Ajustes")
+            .padding(.horizontal, 16)
         }
+        .foregroundStyle(Palette.foreground)
+        .frame(minWidth: 460, minHeight: 440)
+        .preferredColorScheme(.dark)
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            ToneIcon(symbol: "slider.horizontal.3", tone: .violet)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Ajustes")
+                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                Text("provedor local · MCP")
+                    .font(.caption)
+                    .foregroundStyle(Palette.muted)
+            }
+
+            Spacer(minLength: 8)
+            StatusPill(
+                text: model.isReadOnly ? "somente-leitura" : "escrita",
+                tone: model.isReadOnly ? .green : .amber)
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 12)
     }
 
     @ViewBuilder

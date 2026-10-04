@@ -12,6 +12,9 @@ let package = Package(
         .library(name: "StarterUI", targets: ["StarterUI"]),
     ],
     dependencies: [
+        .package(
+            path: "../../../Libraries.dev/packages/border-beam/ports/ios/BorderBeamKit"
+        ),
         .package(path: "../../Packages/ResoluxCore"),
         .package(path: "../../Packages/ResoluxPlatform"),
         .package(path: "../../Packages/ResoluxDesignSystem"),
@@ -23,6 +26,7 @@ let package = Package(
         ]),
         .target(name: "StarterUI", dependencies: [
             "Starter",
+            .product(name: "BorderBeamKit", package: "BorderBeamKit"),
             .product(name: "ResoluxCore", package: "ResoluxCore"),
             .product(name: "ResoluxDesignSystem", package: "ResoluxDesignSystem"),
         ]),

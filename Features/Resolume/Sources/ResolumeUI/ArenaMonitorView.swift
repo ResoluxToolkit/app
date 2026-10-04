@@ -98,59 +98,56 @@ public struct ArenaMonitorView: View {
     public init() {}
 
     public var body: some View {
-        ZStack {
-            AuroraBackground()
-            ScrollView {
-                VStack(spacing: 18) {
-                    headerCard
-                    gridCard
+        ScreenShell(
+            title: "Monitor Arena",
+            subtitle: statusDetail,
+            symbol: "waveform",
+            tone: .cyan,
+            status: model.connected ? "conectado" : "offline",
+            statusTone: model.connected ? .green : .coral) {
+                ScrollView {
+                    VStack(spacing: 18) {
+                        liveInfo
+                        gridCard
+                    }
                 }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 24)
             }
-        }
-        .foregroundStyle(Palette.foreground)
         .frame(minWidth: 720, minHeight: 480)
-        .preferredColorScheme(.dark)
         .onAppear { model.start() }
         .onDisappear { model.stop() }
     }
 
-    private var headerCard: some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 12) {
-                    Text("Monitor Arena")
-                        .font(.title2.weight(.bold))
+    private var statusDetail: String {
+        model.connected ? "Arena REST · leitura pura" : "aguardando Arena…"
+    }
+
+    private var liveInfo: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let active = model.activeClipName {
+                HStack(spacing: 8) {
+                    Image(systemName: "play.circle.fill")
+                        .foregroundStyle(Palette.cyan)
+                    Text(active)
+                        .font(.headline)
+                        .lineLimit(1)
                     Spacer()
-                    StatusPill(
-                        text: model.connected ? "conectado" : "offline",
-                        tone: model.connected ? .green : .coral)
+                    Text(format(seconds: model.activeSeconds))
+                        .font(.system(.title3, design: .monospaced).weight(.semibold))
+                        .foregroundStyle(Palette.cyan)
+                        .contentTransition(.numericText())
                 }
-                if let active = model.activeClipName {
-                    HStack(spacing: 8) {
-                        Image(systemName: "play.circle.fill")
-                            .foregroundStyle(Palette.cyan)
-                        Text(active)
-                            .font(.headline)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(format(seconds: model.activeSeconds))
-                            .font(.system(.title3, design: .monospaced).weight(.semibold))
-                            .foregroundStyle(Palette.cyan)
-                            .contentTransition(.numericText())
-                    }
-                } else {
-                    Label("nenhum clip tocando", systemImage: "pause.circle")
-                        .foregroundStyle(Palette.muted)
-                }
-                if let last = model.lastSuccessfulPoll {
-                    Text("último poll \(last.formatted(date: .omitted, time: .standard))")
-                        .font(.caption)
-                        .foregroundStyle(Palette.muted)
-                }
+            } else {
+                Label("nenhum clip tocando", systemImage: "pause.circle")
+                    .foregroundStyle(Palette.muted)
+            }
+
+            if let last = model.lastSuccessfulPoll {
+                Text("último poll \(last.formatted(date: .omitted, time: .standard))")
+                    .font(.caption)
+                    .foregroundStyle(Palette.muted)
             }
         }
+        .padding(.horizontal, 4)
     }
 
     private var gridCard: some View {

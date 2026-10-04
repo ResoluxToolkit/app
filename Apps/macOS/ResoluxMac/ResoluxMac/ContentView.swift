@@ -24,11 +24,8 @@ struct ContentView: View {
                 Text("Assistente requer macOS 26 ou mais novo.")
                     .tabItem { Label("Assistente", systemImage: "sparkles") }
             }
-            NavigationStack {
-                StarterView(report: report)
-                    .navigationTitle("Resolux")
-            }
-            .tabItem { Label("Starter", systemImage: "wrench.and.screwdriver") }
+            StarterView(report: report)
+                .tabItem { Label("Starter", systemImage: "wrench.and.screwdriver") }
             ProviderSettingsView()
                 .tabItem { Label("Ajustes", systemImage: "slider.horizontal.3") }
         }

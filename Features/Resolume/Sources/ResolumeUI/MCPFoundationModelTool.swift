@@ -13,17 +13,20 @@ struct MCPFoundationModelTool: Tool {
     private let mcpName: String
     private let client: MCPClient
     private let policy: ToolPolicy
+    private let journal: WriteJournal?
 
     init(
         info: MCPToolInfo,
         client: MCPClient,
-        policy: ToolPolicy
+        policy: ToolPolicy,
+        journal: WriteJournal? = nil
     ) throws {
         mcpName = info.name
         name = info.name
         description = info.description ?? "Ferramenta MCP do Resolume Arena."
         self.client = client
         self.policy = policy
+        self.journal = journal
         parameters = try GenerationSchema(
             root: Self.schema(
                 for: ToolSchemaNormalizer.normalize(info.inputSchema),
@@ -51,12 +54,43 @@ struct MCPFoundationModelTool: Tool {
                 action: mcpArguments["action"]?.stringValue)
         }
 
-        let result = try await client.callTool(mcpName, arguments: mcpArguments)
-        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if result.isError {
-            return "Erro MCP: \(text)"
+        // Escrita permitida: mesma regra do ChatEngine -- capturamos o valor
+        // antigo onde existe leitura espelhada e registramos no diário. Sem isso,
+        // o fallback FM mudaria o set sem rastro nenhum.
+        let previous = await previousValue(tool: mcpName, arguments: mcpArguments)
+        do {
+            let result = try await client.callTool(mcpName, arguments: mcpArguments)
+            await record(
+                tool: mcpName, arguments: mcpArguments, result: result.text,
+                isError: result.isError, previous: previous)
+            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if result.isError {
+                return "Erro MCP: \(text)"
+            }
+            return text.isEmpty ? "ok" : text
+        } catch {
+            await record(
+                tool: mcpName, arguments: mcpArguments,
+                result: error.localizedDescription, isError: true, previous: previous)
+            throw error
         }
-        return text.isEmpty ? "ok" : text
+    }
+
+    /// Valor anterior só faz sentido em escrita de `parameter`; igual ao ChatEngine.
+    private func previousValue(
+        tool: String, arguments: [String: MCPValue]) async -> String? {
+        guard journal != nil, ToolPolicy.isWrite(tool: tool, arguments: arguments) else { return nil }
+        guard let readArguments = WriteJournal.mirroredRead(tool: tool, arguments: arguments) else { return nil }
+        return try? await client.callTool("parameter", arguments: readArguments).text
+    }
+
+    private func record(
+        tool: String, arguments: [String: MCPValue], result: String,
+        isError: Bool, previous: String?) async {
+        guard let journal, ToolPolicy.isWrite(tool: tool, arguments: arguments) else { return }
+        try? await journal.record(
+            tool: tool, arguments: arguments, result: result,
+            isError: isError, previous: previous.map { WriteJournal.cap($0) })
     }
 
     private static func schema(
@@ -134,10 +168,11 @@ enum MCPFoundationModelToolFactory {
     static func makeTools(
         from infos: [MCPToolInfo],
         client: MCPClient,
-        policy: ToolPolicy
+        policy: ToolPolicy,
+        journal: WriteJournal? = nil
     ) -> [any Tool] {
         infos.compactMap { info in
-            try? MCPFoundationModelTool(info: info, client: client, policy: policy)
+            try? MCPFoundationModelTool(info: info, client: client, policy: policy, journal: journal)
         }
     }
 }

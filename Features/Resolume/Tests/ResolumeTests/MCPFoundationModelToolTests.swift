@@ -87,3 +87,70 @@ func toolPolicyBlocksBeforeMCPClientCall() async throws {
     #expect(output.contains("Modo somente leitura"))
     #expect(output.contains("transport.set"))
 }
+
+@available(macOS 26.0, *)
+@Test("escrita permitida pelo FM registra no diário com valor anterior")
+func fmWriteJournalsWithPreviousValue() async throws {
+    let root = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("resolux-fm-journal-" + UUID().uuidString)
+    let journal = WriteJournal(directory: root, sessionID: "teste")
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let server = FakeMCPServer()
+    let client = MCPClient(transport: server)
+    try await client.connect()
+    let info = MCPToolInfo(
+        name: "parameter", description: "parameter",
+        inputSchema: .object(["type": .string("object")]))
+    let tool = try MCPFoundationModelTool(
+        info: info, client: client, policy: .readWrite, journal: journal)
+    let arguments = try GeneratedContent(
+        json: #"{"action":"set","path":"/layers/1/volume","value":0.5}"#)
+
+    let output = try await tool.call(arguments: arguments)
+    #expect(output == "ok de parameter")
+
+    let linhas = WriteJournal.entries(at: journal.url)
+    #expect(linhas.count == 1)
+    let registro = try #require(linhas.first)
+    #expect(registro.tool == "parameter")
+    #expect(registro.action == "set")
+    #expect(registro.isError == false)
+    #expect(registro.previous != nil)
+
+    // Ordem provada: leitura espelhada antes da escrita, e nada além.
+    let enviadas = await server.receivedLines
+        .map { $0.replacingOccurrences(of: "\\/", with: "/") }
+        .filter { $0.contains("tools/call") }
+    #expect(enviadas.count == 2)
+    #expect(try #require(enviadas.first).contains("get"))
+    #expect(try #require(enviadas.last).contains(#""action":"set""#))
+}
+
+@available(macOS 26.0, *)
+@Test("leitura via FM não entra no diário")
+func fmReadDoesNotJournal() async throws {
+    let root = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("resolux-fm-journal-" + UUID().uuidString)
+    let journal = WriteJournal(directory: root, sessionID: "teste")
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let server = FakeMCPServer()
+    let client = MCPClient(transport: server)
+    try await client.connect()
+    let info = MCPToolInfo(
+        name: "layer", description: "layer",
+        inputSchema: .object(["type": .string("object")]))
+    let tool = try MCPFoundationModelTool(
+        info: info, client: client, policy: .readWrite, journal: journal)
+    let arguments = try GeneratedContent(json: #"{"action":"get","index":0}"#)
+
+    _ = try await tool.call(arguments: arguments)
+
+    #expect(WriteJournal.entries(at: journal.url).isEmpty)
+    // Mesma pegadinha do journal: a Foundation escapa a barra ("tools\/call").
+    let enviadas = await server.receivedLines
+        .map { $0.replacingOccurrences(of: "\\/", with: "/") }
+        .filter { $0.contains("tools/call") }
+    #expect(enviadas.count == 1)
+}

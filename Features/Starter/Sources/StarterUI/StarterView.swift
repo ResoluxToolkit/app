@@ -1,3 +1,4 @@
+import BorderBeamKit
 import ResoluxCore
 import ResoluxDesignSystem
 import ResoluxPlatform
@@ -19,75 +20,112 @@ public struct StarterView: View {
     public var body: some View {
         ZStack {
             AuroraBackground()
-            ScrollView {
-                VStack(spacing: 18) {
+
+            VStack(spacing: 0) {
+                header
+
+                ScrollView {
+                    VStack(spacing: 18) {
 #if os(macOS)
-                    GlassCard {
-                        BackupCard(lastBackupDate: lastBackupDate, spinning: backupSpinning)
-                        GlowButton(title: "Backup agora", spinning: backupSpinning) {
-                            guard !backupSpinning else { return }
-                            backupSpinning = true
-                            Task {
-                                do {
-                                    let result = try await backupService.runBackup()
-                                    lastBackupDate = result.finishedAt
-                                } catch {
-                                    print("Backup falhou: \(error)")
+                        GlassCard {
+                            BackupCard(lastBackupDate: lastBackupDate, spinning: backupSpinning) {
+                                guard !backupSpinning else { return }
+                                backupSpinning = true
+                                Task {
+                                    do {
+                                        let result = try await backupService.runBackup()
+                                        lastBackupDate = result.finishedAt
+                                    } catch {
+                                        print("Backup falhou: \(error)")
+                                    }
+                                    backupSpinning = false
                                 }
-                                backupSpinning = false
                             }
                         }
-                    }
 #endif
 
-                    GlassCard {
-                        TelegramQRCard()
-                    }
+                        GlassCard {
+                            TelegramQRCard()
+                        }
 
-                    GlassCard {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Label("Ferramentas iniciais", systemImage: "wrench.and.screwdriver.fill")
-                                .font(.headline)
-                            ForEach(report.rows) { row in
-                                HStack(spacing: 12) {
-                                    if row.available {
-                                        CapabilityBadge(capability: row.capability, platform: report.platform)
-                                    } else {
-                                        Label(row.capability.title + " (indisponível)", systemImage: "xmark.circle")
-                                            .foregroundStyle(.secondary)
+                        GlassCard {
+                            VStack(alignment: .leading, spacing: 14) {
+                                Label("Ferramentas iniciais", systemImage: "wrench.and.screwdriver.fill")
+                                    .font(.headline)
+                                ForEach(report.rows) { row in
+                                    HStack(spacing: 12) {
+                                        if row.available {
+                                            CapabilityBadge(capability: row.capability, platform: report.platform)
+                                        } else {
+                                            Label(row.capability.title + " (indisponível)", systemImage: "xmark.circle")
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
                                     }
-                                    Spacer()
                                 }
                             }
                         }
                     }
+                    .padding(.vertical, 20)
                 }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 24)
             }
+            .padding(.horizontal, 16)
         }
+        .foregroundStyle(Palette.foreground)
         .preferredColorScheme(.dark)
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            ToneIcon(symbol: "wrench.and.screwdriver.fill", tone: .violet)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Starter")
+                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                Text("utilitários · backup · capacidades")
+                    .font(.caption)
+                    .foregroundStyle(Palette.muted)
+            }
+
+            Spacer(minLength: 8)
+            StatusPill(text: "pronto", tone: .green)
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 12)
     }
 }
 
 private struct BackupCard: View {
     var lastBackupDate: Date?
     var spinning: Bool
+    let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "externaldrive.fill.badge.timemachine")
-                    .foregroundStyle(Palette.violet)
-                    .font(.title3)
-                Text("Backup do sistema")
-                    .font(.title3.weight(.bold))
-                Spacer()
-                Text(spinning ? "rodando…" : "pronto")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(spinning ? Palette.cyan : Palette.muted)
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "externaldrive.fill.badge.timemachine")
+                        .foregroundStyle(Palette.violet)
+                        .font(.title3)
+                    Text("Backup do sistema")
+                        .font(.title3.weight(.bold))
+                    Spacer()
+                    Text(spinning ? "rodando…" : "pronto")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(spinning ? Palette.cyan : Palette.muted)
+                }
+                BackupCounter(lastBackupDate: lastBackupDate, running: spinning)
             }
-            BackupCounter(lastBackupDate: lastBackupDate, running: spinning)
+
+            GlowButton(title: "Backup agora", spinning: spinning, beam: false, action: action)
+                .borderBeam(
+                    .pulseInner,
+                    colorVariant: .ocean,
+                    theme: .dark,
+                    active: spinning,
+                    borderRadius: 24
+                )
         }
     }
 }

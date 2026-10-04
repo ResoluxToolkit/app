@@ -6,15 +6,18 @@ public struct GlowButton: View {
     public var title: String
     public var symbol: String = "arrow.clockwise"
     public var spinning: Bool = false
+    public var beam: Bool = true
     public var action: () -> Void
 
     // Init declarado dentro do struct: o memberwise sintetizado de um struct
     // publico e apenas interno, e a tela de chat vive em outro modulo.
     public init(title: String, symbol: String = "arrow.clockwise",
-                spinning: Bool = false, action: @escaping () -> Void) {
+                spinning: Bool = false, beam: Bool = true,
+                action: @escaping () -> Void) {
         self.title = title
         self.symbol = symbol
         self.spinning = spinning
+        self.beam = beam
         self.action = action
     }
 
@@ -51,8 +54,10 @@ public struct GlowButton: View {
                     )
             )
             .overlay {
-                BeamStroke(cornerRadius: 24, lineWidth: 1.8, active: spinning, duration: 2.5)
-                    .clipShape(Capsule())
+                if beam {
+                    BeamStroke(cornerRadius: 24, lineWidth: 1.8, active: spinning, duration: 2.5)
+                        .clipShape(Capsule())
+                }
             }
             .shadow(color: Palette.deepViolet.opacity(spinning ? 0.6 : 0.25), radius: 16, y: 6)
         }
