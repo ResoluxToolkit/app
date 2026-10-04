@@ -1,0 +1,47 @@
+{
+  "features" : [
+    "refractivity"
+  ],
+  "fill" : {
+    "linear-gradient" : [
+      "extended-gray:1.00000,1.00000",
+      "extended-gray:0.75000,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "blur-material" : null,
+      "layers" : [
+        {
+          "glass" : true,
+          "image-name" : "icon 2.png",
+          "name" : "icon 2",
+          "position" : {
+            "scale" : 0.7,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "lighting" : "individual",
+      "refractivity" : {
+        "depth" : 0.1592578125,
+        "enabled" : true,
+        "strength" : 0.742265625
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}

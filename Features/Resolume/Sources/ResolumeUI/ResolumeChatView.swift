@@ -1,5 +1,6 @@
 import Resolume
 import ResoluxDesignSystem
+import BorderBeamKit
 import SwiftUI
 
 /// Chat com o Arena no tema MEVOLIT.
@@ -178,7 +179,7 @@ public struct ResolumeChatView: View {
                         Text("Você está capenga")
                             .font(.system(size: 13, weight: .heavy))
                             .foregroundStyle(.white)
-                        Text("Modelo da Apple só enxerga \(model.backend?.toolAllowlist?.count ?? 0) de \(toolTotal) ferramentas do Arena — camada e efeito ficaram de fora. Ligando o Ollama a gente fala com tudo.")
+                        Text("Modelo da Apple só enxerga \(model.backend?.toolAllowlist?.count ?? 0) de \(toolTotal) ferramentas do Arena — camada e efeito ficaram de fora. Caindo pro gateway local a gente fala com tudo.")
                             .font(.caption)
                             .foregroundStyle(Palette.muted)
                             .fixedSize(horizontal: false, vertical: true)
@@ -253,10 +254,13 @@ public struct ResolumeChatView: View {
                     .overlay(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
-                    .overlay {
-                        BeamStroke(cornerRadius: 18, lineWidth: 1.4,
-                                   active: model.isBusy, duration: 1.6)
-                    }
+                    .borderBeam(
+                        .line,
+                        colorVariant: .ocean,
+                        theme: .dark,
+                        active: model.isBusy,
+                        borderRadius: 18
+                    )
 
                 Button {
                     Task { await model.sendDraft() }

@@ -70,7 +70,7 @@ func undiscoveredProviderFailsCleanlyAndStaysRetryable() async {
         return
     }
     // Motivo acionavel: tem que dizer o que ele procurou.
-    #expect(reason.contains("1976") && reason.contains("11434"),
+    #expect(reason.contains("1976") && reason.contains("8317"),
             "motivo nao aponta os dois provedores sondados: \(reason)")
 
     // Segunda tentativa tem que ser reavaliada, nao engolida por um guarda de

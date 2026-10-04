@@ -5,12 +5,13 @@ import Foundation
 /// Regra do produto: "abre o Arena, abre nosso app e a gente dá o nosso jeito".
 /// Nada de pedir IP, porta ou chave -- os dois provedores que existem nesta
 /// máquina já escutam em loopback e se anunciam: `fm serve` da Apple na 1976 e
-/// Ollama na 11434, ambos OpenAI-compatíveis em /v1. Só sondamos 127.0.0.1:
+/// o gateway local do operador na 8317, ambos OpenAI-compatíveis em /v1. Só
+/// sondamos 127.0.0.1:
 /// nunca varremos a rede, que é o que conflitaria com infra de casa de show.
 public struct LocalChatBackend: Identifiable, Sendable, Equatable {
     public enum Kind: String, Sendable, Equatable {
         case appleFoundationModels
-        case ollama
+        case localGateway
     }
 
     public var id: Kind { kind }
@@ -24,17 +25,28 @@ public struct LocalChatBackend: Identifiable, Sendable, Equatable {
         self.model = model
     }
 
-    /// Nome curto pra UI ("Apple FM · system", "Ollama · qwen3:1.7b").
+    /// Nome curto pra UI ("Apple Foundation · system", "gemini-3.8-flash-high").
     public var displayName: String {
         switch kind {
         case .appleFoundationModels: "Apple Foundation · \(model)"
-        case .ollama: "Ollama · \(model)"
+        case .localGateway: model
         }
     }
 
-    /// Chave fixa: nenhum dos dois exige; o campo só existe porque o formato
-    /// OpenAI-compatível pede.
-    public var apiKey: String { "resolux-local" }
+    /// Chave fixa por provedor: Apple FM não exige (o campo existe porque o
+    /// formato OpenAI-compatível pede) e o gateway usa a chave do operador.
+    public var apiKey: String {
+        switch kind {
+        case .appleFoundationModels: "resolux-local"
+        case .localGateway: Self.localGatewayAPIKey
+        }
+    }
+
+    /// Gateway OpenAI-compatível definido pelo operador, escutando em loopback.
+    /// Modelo e chave são dele; nada de catálogo remoto ou nuvem.
+    public static let localGatewayBaseURL = URL(string: "http://127.0.0.1:8317/v1")!
+    public static let localGatewayModel = "gemini-3.8-flash-high"
+    public static let localGatewayAPIKey = "123456"
 
     /// As 10 ferramentas que cabem na janela do `fm serve`. Lista medida nesta
     /// máquina com o system prompt real e `stream:false`: 3.986 tokens de prompt
@@ -46,12 +58,12 @@ public struct LocalChatBackend: Identifiable, Sendable, Equatable {
         "composition", "group", "crossfader", "color_code",
     ]
 
-    /// Ferramentas que este backend pode receber. Ollama leva tudo (contexto de
-    /// 40k medido no `/api/tags`); o Apple leva o subset acima.
+    /// Ferramentas que este backend pode receber. O gateway local leva tudo
+    /// (22 ferramentas); o Apple leva o subset acima.
     public var toolAllowlist: Set<String>? {
         switch kind {
         case .appleFoundationModels: Self.appleToolSubset
-        case .ollama: nil
+        case .localGateway: nil
         }
     }
 
@@ -59,12 +71,11 @@ public struct LocalChatBackend: Identifiable, Sendable, Equatable {
 
     /// Ordem de preferencia entre provedores que responderam em loopback.
     ///
-    /// Voto do operador (2026-09-27): Foundation Models "de cara", e o Ollama
-    /// entra quando "o malandro nao configurou/nao souber" -- assim ninguem fica
-    /// com a ferramenta principal sem funcionar. O custo ele aceitou de olhos
-    /// abertos (DUVIDAS 3): o Apple so leva as 10 ferramentas baratas e `layer`
-    /// fica fora, entao pergunta sobre camadas nao e respondivel por la. Quem
-    /// quiser as 22 liga o Ollama.
+    /// Voto do operador (2026-10-03, revoga o de 2026-09-27): o gateway local
+    /// (8317, com as 22 ferramentas) entra "de cara" e o Apple FM vira a rede
+    /// de seguranca quando o gateway nao responde. Antes era o contrario:
+    /// Apple de cara com 10 ferramentas e gateway de rede de seguranca
+    /// (DUVIDAS 3).
     ///
     /// Offline e o outro lado desse voto (tem venue sem internet). A regra dele
     /// foi literal: embutir modelo grande aqui "a gente vai foder um software".
@@ -75,8 +86,8 @@ public struct LocalChatBackend: Identifiable, Sendable, Equatable {
 
     private static func preferenceRank(_ backend: LocalChatBackend) -> Int {
         switch backend.kind {
-        case .appleFoundationModels: 0
-        case .ollama: 1
+        case .appleFoundationModels: 1
+        case .localGateway: 0
         }
     }
 
@@ -96,17 +107,18 @@ public struct LocalChatBackend: Identifiable, Sendable, Equatable {
             modelPick: { ids in ids.contains("system") ? "system" : ids.first },
             timeout: timeout)
         }
-        let ollamaTask = Task { () async -> LocalChatBackend? in
+        let gatewayTask = Task { () async -> LocalChatBackend? in
             await Self.probe(
-            kind: .ollama,
-            url: URL(string: "http://127.0.0.1:11434/v1/models")!,
-            modelPick: { ids in ids.first(where: { $0.hasPrefix("qwen3") }) ?? ids.first },
+            kind: .localGateway,
+            url: Self.localGatewayBaseURL.appending(path: "models"),
+            modelPick: { _ in Self.localGatewayModel },
+            apiKey: Self.localGatewayAPIKey,
             timeout: timeout)
         }
         // As duas sondas rodam em paralelo (não encadeadas): a ordem de chegada
         // não decide nada, decide `preferredOrder` -- que é o voto do operador,
         // não a latência de cada porta. Ver docs/DUVIDAS.md pergunta 3.
-        let found = await [appleTask.value, ollamaTask.value]
+        let found = await [appleTask.value, gatewayTask.value]
         return Self.preferredOrder(found.compactMap { $0 })
     }
 
@@ -114,10 +126,14 @@ public struct LocalChatBackend: Identifiable, Sendable, Equatable {
         kind: Kind,
         url: URL,
         modelPick: @Sendable ([String]) -> String?,
+        apiKey: String? = nil,
         timeout: TimeInterval
     ) async -> LocalChatBackend? {
         var request = URLRequest(url: url, timeout: timeout)
         request.httpMethod = "GET"
+        if let apiKey {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
         guard let (data, response) = try? await localSession.data(for: request),
               let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode),

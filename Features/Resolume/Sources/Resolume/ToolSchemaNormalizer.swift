@@ -4,7 +4,7 @@ import Foundation
 /// que os backends locais aceitam.
 ///
 /// Medido nesta máquina, com o `tools/list` real do Arena (22 ferramentas):
-/// - Ollama (:11434): aceita o schema cru **e** o normalizado.
+/// - Gateway local (:8317): aceita o schema cru **e** o normalizado.
 /// - `fm serve` (:1976, Apple Foundation Models): devolve **HTTP 400** no schema
 ///   cru. Não é tamanho -- uma ferramenta só já caía. São quatro construtos:
 ///   união de tipo (`"type": ["string","null"]`), nó com `anyOf`/`oneOf`,

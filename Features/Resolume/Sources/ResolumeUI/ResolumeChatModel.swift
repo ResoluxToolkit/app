@@ -105,7 +105,7 @@ public final class ResolumeChatModel {
     }
 
     /// Caminho normal do produto: nenhum campo preenchido. Descobre o provedor
-    /// local que estiver de pé (Apple FM na 1976, Ollama na 11434) e conecta.
+    /// local que estiver de pé (Apple FM na 1976, gateway local na 8317) e conecta.
     /// "Abre o Arena, abre nosso aplicativo e a gente dá o nosso jeito."
     public func connect(policyMode: ToolPolicy.Mode = .readOnly) {
         guard phase != .connecting else { return }
@@ -120,7 +120,7 @@ public final class ResolumeChatModel {
                 self?.phase = .failed(
                     """
                     Nenhum provedor local respondeu. Abra um dos dois: \
-                    Apple Foundation Models (fm serve, porta 1976) ou Ollama (porta 11434).
+                    Apple Foundation Models (fm serve, porta 1976) ou gateway local (porta 8317).
                     """)
                 return
             }

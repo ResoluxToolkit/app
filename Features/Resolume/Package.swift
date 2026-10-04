@@ -11,12 +11,16 @@ let package = Package(
     dependencies: [
         .package(path: "../../Packages/ResoluxCore"),
         .package(path: "../../Packages/ResoluxDesignSystem"),
+        .package(
+            path: "../../../Libraries.dev/packages/border-beam/ports/ios/BorderBeamKit"
+        ),
     ],
     targets: [
         .target(name: "Resolume", dependencies: [.product(name: "ResoluxCore", package: "ResoluxCore")]),
         .target(name: "ResolumeUI", dependencies: [
             "Resolume",
             .product(name: "ResoluxDesignSystem", package: "ResoluxDesignSystem"),
+            .product(name: "BorderBeamKit", package: "BorderBeamKit"),
         ]),
         .testTarget(
             name: "ResolumeTests",

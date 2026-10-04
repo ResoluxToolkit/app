@@ -52,7 +52,7 @@ private func withUnsafePointerTo(
 /// -- somando ~17,4k. O teto está entre 2,3k (10 ferramentas, HTTP 200) e 3,1k
 /// (12 ferramentas, HTTP 500). Descrição curta não ajuda: cortada a 0, continua
 /// 500 -- quem come a janela é o JSON Schema, não o texto.
-/// Por isso o loop vivo de referência roda pelo Ollama, abaixo.
+/// Por isso o loop vivo de referência roda pelo gateway local, abaixo.
 @Test("pergunta sobre o set chega ao Arena pela via de texto do fm",
       .enabled(if: ProcessInfo.processInfo.environment["RESOLUX_FM_LIVE"] != nil
                  && ResolumeProduct.arena.isResponsive() && portIsListening(1976)),
@@ -86,15 +86,15 @@ func liveQuestionReachesArena() async throws {
     #expect(!answer.isEmpty)
 }
 
-/// Mesmo loop pelo Ollama (:11434). Escolhido porque é o backend local que
+/// Mesmo loop pelo gateway local (:8317). Escolhido porque é o backend que
 /// realmente dirige as 22 ferramentas: o `fm` da Apple tem janela curta e
 /// recusa o conjunto inteiro (medido: HTTP 500 acima de ~3k tokens de prompt,
 /// e as 22 ferramentas custam ~17,4k). O `qwen3:1.7b` devolve `tool_calls` no
 /// campo nativo, então este teste também cobre o caminho feliz sem resgate.
-@Test("loop completo pelo Ollama usa ferramenta MCP do Arena",
-      .enabled(if: ResolumeProduct.arena.isResponsive() && portIsListening(11434)),
+@Test("loop completo pelo gateway local usa ferramenta MCP do Arena",
+      .enabled(if: ResolumeProduct.arena.isResponsive() && portIsListening(8317)),
       .timeLimit(.minutes(5)))
-func liveLoopThroughOllama() async throws {
+func liveLoopThroughLocalGateway() async throws {
     let transport = ProcessMCPTransport(
         executableURL: URL(fileURLWithPath: ResolumeProduct.arena.mcpExecutablePath),
         responseTimeout: 15)
@@ -104,9 +104,9 @@ func liveLoopThroughOllama() async throws {
 
     let engine = ChatEngine(
         config: .init(
-            baseURL: URL(string: "http://127.0.0.1:11434/v1")!,
-            apiKey: "local",
-            model: "qwen3:1.7b"),
+            baseURL: LocalChatBackend.localGatewayBaseURL,
+            apiKey: LocalChatBackend.localGatewayAPIKey,
+            model: LocalChatBackend.localGatewayModel),
         mcp: mcp,
         policy: .readOnly)
 

@@ -6,7 +6,7 @@ import Testing
 /// com o system prompt real e `stream:false`, o `fm serve` da Apple aceita as
 /// 10 ferramentas mais baratas do Arena (3.986 tokens de prompt, HTTP 200) e
 /// devolve HTTP 500 na decima primeira -- inclusive uma barata (`layer`, que e
-/// justamente a que responde "quantas camadas tem"). O Ollama leva as 22.
+/// justamente a que responde "quantas camadas tem"). O gateway local leva as 22.
 /// Estes testes prendem essa medicao para ninguem "simplificar" o filtro depois.
 
 private func nomesOferecidos(noBody body: Data) -> [String] {
@@ -51,8 +51,9 @@ func nilAllowlistOffersEverything() async throws {
     let backend = ScriptedChatTransport(script: [
         ScriptedChatTransport.textResponse("Arena rodando.")])
     let engine = ChatEngine(
-        config: .init(baseURL: URL(string: "http://127.0.0.1:11434/v1")!,
-                      apiKey: "local", model: "qwen3:1.7b"),
+        config: .init(baseURL: LocalChatBackend.localGatewayBaseURL,
+                      apiKey: LocalChatBackend.localGatewayAPIKey,
+                      model: LocalChatBackend.localGatewayModel),
         transport: backend,
         mcp: mcp)
 
@@ -60,7 +61,7 @@ func nilAllowlistOffersEverything() async throws {
 
     let bodies = await backend.requestBodies
     let nomes = Set(nomesOferecidos(noBody: bodies[0]))
-    #expect(nomes == ["status", "layer"], "Ollama deveria receber tudo: \(nomes)")
+    #expect(nomes == ["status", "layer"], "gateway deveria receber tudo: \(nomes)")
 }
 
 @Test("nome filtrado nao pode ser resgatado como texto")
@@ -94,9 +95,9 @@ func appleSubsetMatchesTheMeasurement() throws {
     for cara in ["clip", "effect", "layer", "parameter", "monitor", "batch"] {
         #expect(!subset.contains(cara), "\(cara) estoura a janela do fm")
     }
-    let ollama = LocalChatBackend(kind: .ollama, baseURL: URL(string: "http://x/v1")!,
-                                  model: "qwen3:1.7b")
-    #expect(ollama.toolAllowlist == nil, "Ollama nao deve filtrar nada")
+    let gateway = LocalChatBackend(kind: .localGateway, baseURL: URL(string: "http://x/v1")!,
+                                   model: "gemini-3.8-flash-high")
+    #expect(gateway.toolAllowlist == nil, "gateway local nao deve filtrar nada")
     let apple = LocalChatBackend(kind: .appleFoundationModels,
                                  baseURL: URL(string: "http://x/v1")!, model: "system")
     #expect(apple.toolAllowlist == subset)
