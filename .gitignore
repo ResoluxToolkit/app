@@ -15,4 +15,4 @@ Install_NDI_SDK*.pkg
 
 # Local tool/session artifacts.
 .xcodebuildmcp/
-docs.zip
+*.zip
