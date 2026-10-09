@@ -968,3 +968,19 @@ Podem sumir a qualquer momento; nada essencial depende deles.
   candidato a fixture de teste que existe. `/tmp/sw.yaml` — swagger do REST, 258
   rotas. `/tmp/perf6.swift` (GPU via IOAccelerator) e `/tmp/rus5.swift`
   (CPU/RAM via `proc_pid_rusage`), os dois probes compilados e calibrados.
+- `~/.spike/resolux-org.env` — identidade do Agente (2026-10-09, pedido do
+  operador): `GIT_AUTHOR_*`/`GIT_COMMITTER_*` = `resolux-org
+  <resoluxtoolkit@gmail.com>`, `GIT_SSH_COMMAND` apontando
+  `~/.ssh/resolux_org_ed25519` (key adicionada à conta GitHub `resolux-org`),
+  `GH_TOKEN` do `resolux-org` (scopes `repo` + `admin:public_key`) para `gh`/PRs
+  como ele. **(medido: PAT validado, SSH responde "Hi resolux-org!", commit e
+  push da tacada 49 saíram como ele)**
+- Identidade do terminal do operador: `git config` do repo =
+  `Luiz Neto <lmoraes@me.com>` (vincula ao perfil `looizinho`). Commits antigos
+  do checkpoint (PR #1) saíram `Luiz Neto <luizinho@mac.local>` — sem config de
+  identidade na época. **(medido)**
+- Regra prática de identidade: operador no terminal não muda nada; o Agente
+  carrega o env (`set -a; source ~/.spike/resolux-org.env; set +a`) antes de
+  commit, push e `gh`. MCP GitHub do plugin continua autenticado como
+  `looizinho` — quando a identidade importa, usar `gh` com `GH_TOKEN` inline em
+  vez do MCP.
