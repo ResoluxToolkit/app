@@ -143,6 +143,9 @@ private struct BackupCounter: View {
             Text(counterText(elapsed: elapsed))
                 .font(.system(.footnote, design: .monospaced))
                 .foregroundStyle(running ? Palette.cyan : Palette.muted)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .modifier(BackupCounterGlassModifier(running: running))
                 .contentTransition(.numericText())
                 .animation(.default, value: elapsed)
         }
@@ -157,6 +160,22 @@ private struct BackupCounter: View {
         }
         let minutes = elapsed / 60
         return String(format: "último backup há %02d:%02d", minutes, elapsed % 60)
+    }
+}
+
+private struct BackupCounterGlassModifier: ViewModifier {
+    let running: Bool
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, iOS 26.0, *) {
+            content
+                .glassEffect(.clear.tint(running ? Palette.cyan.opacity(0.14) : Color.white.opacity(0.04)), in: Capsule())
+                .overlay(Capsule().strokeBorder(running ? Palette.cyan.opacity(0.3) : Color.white.opacity(0.08), lineWidth: 1))
+        } else {
+            content
+                .background(Capsule().fill(Color.white.opacity(0.05)))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+        }
     }
 }
 

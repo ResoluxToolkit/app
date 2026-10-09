@@ -11,6 +11,18 @@ public enum Palette {
     public static let hairline = Color.white.opacity(0.12)
     public static let border = Color.white.opacity(0.18)
 
+    public static let assistantBackground = rgb(0x0A0A0D)
+    public static let assistantBorder = Color.white.opacity(0.10)
+    public static let textPrimary = rgb(0xF5F5F7)
+    public static let textSecondary = rgb(0x9C9CA3)
+    public static let textTertiary = rgb(0x6E6E75)
+    public static let brand = rgb(0xF26B33)
+    public static let success = rgb(0x30D158)
+    public static let alert = rgb(0xFFD60A)
+    public static let danger = rgb(0xFF453A)
+    public static let info = rgb(0x64D2FF)
+    public static let accentViolet = rgb(0xBF5AF2)
+
     public static let deepViolet = rgb(0x7C3AED)
     public static let violet = rgb(0xA855F7)
     public static let magenta = rgb(0xEC4899)

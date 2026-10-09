@@ -73,6 +73,21 @@ func plainAnswerWithoutTools() async throws {
     }
 }
 
+@Test("resposta final remove bloco think")
+func finalAnswerStripsThinkingTag() async throws {
+    let mcp = MCPClient(transport: FakeMCPServer())
+    try await mcp.connect()
+    let backend = ScriptedChatTransport(script: [
+        ScriptedChatTransport.textResponse("Pensando.\\u003Cthink\\u003E\\u003C/think\\u003E\\nResposta curta."),
+    ])
+    let engine = ChatEngine(
+        config: .init(apiKey: "test", model: "fake-model"),
+        transport: backend,
+        mcp: mcp)
+    let answer = try await engine.send("Como tá o Arena?")
+    #expect(answer == "Resposta curta.")
+}
+
 @Test("prompt exige declarar a fonte do relógio antes de citar BPM")
 func promptTeachesPerClipClockSource() {
     // Lição do operador: o Arena tem vários controles de velocidade e transporte.

@@ -13,6 +13,61 @@
 > **anotar** e não perguntar no meio do trabalho. Uma unidade de trabalho por tacada,
 > depois pausar e ouvir.
 
+## Decisão de direção (2026-10-06) — headless + web
+
+- Operador aprovou migrar o produto para **motor headless (Swift) + cliente web**.
+  Apps nativos (`ResoluxMac`/`ResoluxIOS`) e a UI SwiftUI ficam **aposentados como
+  código ativo** — nada apagado nesta tacada. **(medido: conversa)**
+- Ativo preservado: motor Swift puro (`Features/Resolume/Sources/Resolume`, 19
+  arquivos sem import Apple, 85 testes). UI nova = página web vanilla servida pelo
+  daemon. **(medido)**
+- Arquitetura combinada: `ResoluxServer` (executável SwiftPM, porta `1980`) serve
+  o estático + WebSocket do chat + **proxy read-only** `/arena/*` →
+  `127.0.0.1:8080/api/v1` (resolve CORS sem tocar no Arena). Backend de chat
+  default no web: Ollama (`qwen3:1.7b`, tool_calls nativo); `ToolCallTextRescue`
+  fica só para o caminho Apple FM. **(docs)**
+- Ideia de hospedar o HTML no webserver do Arena (`:8080`): **arquivada pelo
+  operador** (exigiria tocar na pasta dele — viola a regra de imutabilidade).
+- Próxima tacada (T37): spike `ResoluxServer` + `web/index.html` — wrapper do
+  `ChatEngine` + `MCPClient` + `ToolPolicy`/`ModeGate`/`WriteJournal`, teste do
+  proxy com mock injetável, validação no olho (Arena aberto + Ollama de pé,
+  browser em `http://localhost:1980`), registro append-only em `ITERACOES.md`.
+- Organização acordada: **conversas separadas** (motor Swift numa sessão, front
+  web noutra), **mesmo repo** — a fronteira única é o contrato HTTP/WS do daemon.
+- Contrato inicial v1 definido em `docs/API-CONTRATO.md`: daemon na `1980`,
+  chat por WebSocket turno final, estado por HTTP e proxy read-only do Arena.
+  Voto do operador (2026-10-06): fechar o cliente↔daemon em WebSocket; protocolos
+  externos pendurados no adaptador do daemon, não no motor puro. Nada implementado.
+- Voto do operador (2026-10-06): cliente Meteor; banco fora do workflow local.
+  Supabase/Mongo não participam do turno, ficam só para auth/backup enviados pelo
+  cliente em idle. Motor segue sem conhecer cliente nem nuvem.
+- Nada implementado ainda da nova direção; lote pendente e estado do git (§1)
+  continuam valendo.
+
+## Requisitos do operador (2026-10-07) — homologação e mídia
+
+- **Homologação da infraestrutura é gate, não relatório decorativo.** Antes de
+  operar, o sistema audita o ambiente real: portas/protocolos, Arena/MCP, rede,
+  áudio, recursos de máquina e capacidade estimada para o projeto (ex.: número
+  de clipes). Falha crítica bloqueia o modo de operação; limitação aparece
+  explicada e, se necessária, dá fallback. Ele não improvisa nem tem "vontade
+  própria". O acesso/logon do evento é parte do checklist; sem isso, o fluxo
+  não sobe. **(docs: conversa)**
+- **Diagnóstico de operação continua passivo:** só leitura/observação, sem
+  alterar estado e sem forçar carga no evento. Teste ativo de carga, se algum
+  dia existir, é decisão separada do operador. **(docs: conversa)**
+- **Porta do REST do Arena é observada, não presumida.** `8080` é default de
+  fábrica, mas pode estar ocupada ou ter sido movida; nesta sessão `8008`
+  respondeu. O preflight valida a porta configurada; ninguém mexe no Arena.
+  **(medido: conversa)**
+- **Front continua falando só o contrato do daemon** (`API-CONTRATO.md`). Cada
+  fonte externa tem adaptador no daemon; motor puro não conhece Arena, NDI,
+  RTC nem protocolo de fonte.
+- **Vídeo ao vivo entre dispositivos entra numa camada RTC separada do controle.**
+  Continuity Camera é uma fonte possivelmente exposta por essa camada; pixels
+  não trafegam no caminho de chat/controle. Ainda sem implementação e sem
+  escolha final de tecnologia (WebRTC/WHIP/NDI). **(docs: conversa)**
+
 ## 0. Votos recebidos (2026-09-27, checkpoint 5) e o que ainda espera
 **Resolvidos por ele nesta tacada:**
 - **Backend default -- RESPONDI DO MODO DELE:** *"Foundation Models de cara, se o

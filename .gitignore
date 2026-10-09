@@ -5,3 +5,14 @@ xcuserdata/
 *.xcscm
 swiftmodule.cache/
 build/
+
+# NDI SDK artifacts are confidential and must never enter the repo.
+*NDI*
+libndi*
+Processing.NDI.*
+NDI_SDK/
+Install_NDI_SDK*.pkg
+
+# Local tool/session artifacts.
+.xcodebuildmcp/
+docs.zip
