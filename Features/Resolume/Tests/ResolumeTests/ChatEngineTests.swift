@@ -85,7 +85,7 @@ func finalAnswerStripsThinkingTag() async throws {
         transport: backend,
         mcp: mcp)
     let answer = try await engine.send("Como tá o Arena?")
-    #expect(answer == "Resposta curta.")
+    #expect(answer == "Pensando.\nResposta curta.")
 }
 
 @Test("prompt exige declarar a fonte do relógio antes de citar BPM")
