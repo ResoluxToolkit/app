@@ -36,22 +36,24 @@ public struct ResolumeChatView: View {
     // MARK: - Cabeçalho
 
     private var header: some View {
-        HStack(spacing: 12) {
-            ToneIcon(symbol: "waveform.path.ecg", tone: .violet, size: 42)
+        GlassEffectGroup(spacing: 12) {
+            HStack(spacing: 12) {
+                ToneIcon(symbol: "waveform.path.ecg", tone: .violet, size: 42)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Resolux")
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-                Text(subtitulo)
-                    .font(.caption)
-                    .foregroundStyle(Palette.muted)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Resolux")
+                        .font(.system(size: 18, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(subtitulo)
+                        .font(.caption)
+                        .foregroundStyle(Palette.muted)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                }
+
+                Spacer(minLength: 8)
+                StatusPill(text: statusTexto, tone: statusTom)
             }
-
-            Spacer(minLength: 8)
-            StatusPill(text: statusTexto, tone: statusTom)
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 12)
@@ -245,15 +247,7 @@ public struct ResolumeChatView: View {
                     .disabled(!podeEnviar)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    .background {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                            .environment(\.colorScheme, .dark)
-                            .opacity(0.7)
-                    }
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
+                    .modifier(ChatTextFieldGlassModifier())
                     .borderBeam(
                         .line,
                         colorVariant: .ocean,
@@ -269,7 +263,7 @@ public struct ResolumeChatView: View {
                         .font(.system(size: 26))
                         .foregroundStyle(Palette.primaryGradient)
                 }
-                .buttonStyle(.plain)
+                .modifier(ChatSendButtonGlassModifier())
                 .disabled(!podeEnviar)
             }
         }
@@ -305,6 +299,38 @@ public struct ResolumeChatView: View {
                 active: model.phase == .connecting,
                 borderRadius: 24
             )
+        }
+    }
+}
+
+private struct ChatTextFieldGlassModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        if #available(macOS 26.0, iOS 26.0, *) {
+            content
+                .glassEffect(.regular, in: shape)
+                .overlay(shape.strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
+        } else {
+            content
+                .background {
+                    shape
+                        .fill(.ultraThinMaterial)
+                        .environment(\.colorScheme, .dark)
+                        .opacity(0.7)
+                }
+                .overlay(shape.strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
+        }
+    }
+}
+
+private struct ChatSendButtonGlassModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, iOS 26.0, *) {
+            content
+                .buttonStyle(.glass)
+        } else {
+            content
+                .buttonStyle(.plain)
         }
     }
 }

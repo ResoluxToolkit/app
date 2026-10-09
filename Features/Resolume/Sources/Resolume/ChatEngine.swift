@@ -94,7 +94,7 @@ public actor ChatEngine {
                     history.append(.tool(toolCallId: call.id, content: outcome))
                 }
             default:
-                let text = reply.message.content ?? ""
+                let text = ReasoningFilter.strip(from: reply.message.content ?? "")
                 // Backend local que não sabe usar o campo `tool_calls` escreve a
                 // chamada como texto. Sem este resgate o turno acaba aqui e nada
                 // roda no Arena -- o modelo responde "acho que tem 3 camadas".

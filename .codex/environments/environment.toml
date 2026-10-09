@@ -6,6 +6,6 @@ name = "ResoluxToolkit"
 script = ""
 
 [[actions]]
-name = "Open Workspace"
+name = "Workspace"
 icon = "tool"
-command = "open ~/Developer/ResoluxToolkit/ResoluxToolkit.xcworkspace"
+command = "open ./ResoluxToolkit.xcworkspace"

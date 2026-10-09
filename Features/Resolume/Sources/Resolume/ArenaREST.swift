@@ -10,8 +10,9 @@ import Foundation
 /// - `POST /file-info` aceita **array** de arquivos numa chamada e devolve
 ///   `duration_ms`, `framerate{num,denom}`, resolucao e bloco `audio`.
 ///
-/// Leitura pura: nenhuma rota daqui escreve no set. Valem as regras da casa --
-/// porta dele nao muda (8080), nada de Preferences/Wire.
+/// Leitura pura: nenhuma rota daqui escreve no set. A porta pode variar por
+/// venue; nao configuramos o Arena. Endpoint e injetavel e a homologacao e quem
+/// aponta o alvo. Nada de Preferences/Wire.
 public struct ArenaREST: Sendable {
     public enum Failure: Error, Equatable, CustomStringConvertible {
         case http(Int)
@@ -96,6 +97,17 @@ public struct ArenaREST: Sendable {
         guard let values = try decode(try await endpoint.post("/file-info", body)).arrayValue
         else { throw Failure.transporte("file-info não devolveu array") }
         return values
+    }
+
+    /// Captura a thumbnail de um clipe. A leitura usa o ID e `last_update`
+    /// anunciados em `GET /composition`, como o exemplo oficial da Arena usa;
+    /// o sufixo também invalida o cache no browser/URLSession.
+    public func thumbnailData(clipID: Int, stamp: String) async throws -> Data {
+        guard !stamp.isEmpty, stamp != "0" else {
+            throw Failure.transporte("thumbnail não gerada")
+        }
+        return try await endpoint.get(
+            "/composition/clips/by-id/\(clipID)/thumbnail/\(stamp)")
     }
 
     /// Percent-encoding obrigatorio: medido com "Hello World.drift" -- espaco
