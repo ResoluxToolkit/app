@@ -193,7 +193,7 @@ struct ResoluxServerMain {
                 await enviar(
                     conexao,
                     WsDecodificador.texto(
-                        #"{"type":"session.updated","id":"\#(identificadorJson(id))","payload":\#(String(decoding: sessao, as: UTF8.self))}"#))
+                        #"{"type":"session.updated","id":\#(identificadorJson(id)),"payload":\#(String(decoding: sessao, as: UTF8.self))}"#))
             } catch let erro as RecusaSessao {
                 await enviar(conexao, WsDecodificador.texto(descricaoErroSessao(erro, id: id)))
             } catch {
@@ -209,7 +209,7 @@ struct ResoluxServerMain {
             await enviar(
                 conexao,
                 WsDecodificador.texto(
-                    #"{"type":"pong","id":"\#(identificadorJson(id))"}"#))
+                    #"{"type":"pong","id":\#(identificadorJson(id))}"#))
         default:
             await enviarErro(conexao, codigo: "invalid_message", id: id)
         }
@@ -225,10 +225,10 @@ struct ResoluxServerMain {
         switch evento {
         case .update(let corpo):
             mensagem =
-                #"{"type":"monitor.update","id":"\#(idJson)","payload":{"composition":\#(String(decoding: corpo, as: UTF8.self))}}"#
+                #"{"type":"monitor.update","id":\#(idJson),"payload":{"composition":\#(String(decoding: corpo, as: UTF8.self))}}"#
         case .erro(let codigo, let texto):
             mensagem =
-                #"{"type":"monitor.error","id":"\#(idJson)","payload":{"code":"\#(codigo)","message":"\#(texto)"}}"#
+                #"{"type":"monitor.error","id":\#(idJson),"payload":{"code":"\#(codigo)","message":"\#(texto)"}}"#
         }
         await enviar(conexao, WsDecodificador.texto(mensagem))
     }
@@ -241,7 +241,7 @@ struct ResoluxServerMain {
         await enviar(
             conexao,
             WsDecodificador.texto(
-                #"{"type":"error","id":"\#(identificadorJson(id))","payload":{"code":"\#(codigo)","message":"\#(mensagem)"}}"#))
+                #"{"type":"error","id":\#(identificadorJson(id)),"payload":{"code":"\#(codigo)","message":"\#(mensagem)"}}"#))
     }
 
     private static func descricaoErroSessao(_ erro: RecusaSessao, id: String?) -> String {
@@ -259,7 +259,7 @@ struct ResoluxServerMain {
             mensagem = "Payload de session.update inválido."
         }
         return
-            #"{"type":"error","id":"\#(identificadorJson(id))","payload":{"code":"\#(codigo)","message":"\#(mensagem)"}}"#
+            #"{"type":"error","id":\#(identificadorJson(id)),"payload":{"code":"\#(codigo)","message":"\#(mensagem)"}}"#
     }
 
     private static func identificadorJson(_ id: String?) -> String {
