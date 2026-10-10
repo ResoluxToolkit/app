@@ -67,8 +67,25 @@ public actor MonitorHub {
     }
 
     private func entregar(_ evento: Evento) async {
-        for (_, entregador) in entregadores {
-            await entregador(evento)
+        for (id, entregador) in entregadores {
+            Task {
+                let concluiu = await withTaskGroup(of: Bool.self) { grupo in
+                    grupo.addTask {
+                        await entregador(evento)
+                        return true
+                    }
+                    grupo.addTask {
+                        try? await Task.sleep(nanoseconds: 5_000_000_000)
+                        return false
+                    }
+                    let primeiro = await grupo.next() ?? false
+                    grupo.cancelAll()
+                    return primeiro
+                }
+                if !concluiu {
+                    await self.cancelar(id)
+                }
+            }
         }
     }
 }
