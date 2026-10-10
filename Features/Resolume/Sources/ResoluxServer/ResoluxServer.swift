@@ -52,6 +52,7 @@ struct ResoluxServerMain {
             } catch {
                 await despedir(
                     conexao,
+                    emWebSocket: emWebSocket,
                     assinatura: assinatura,
                     monitor: monitor,
                     idMonitor: idMonitor)
@@ -61,6 +62,7 @@ struct ResoluxServerMain {
             if dados.isEmpty {
                 await despedir(
                     conexao,
+                    emWebSocket: emWebSocket,
                     assinatura: assinatura,
                     monitor: monitor,
                     idMonitor: idMonitor)
@@ -81,6 +83,7 @@ struct ResoluxServerMain {
                         await enviar(conexao, resposta.serializar())
                         await despedir(
                             conexao,
+                            emWebSocket: false,
                             assinatura: nil,
                             monitor: monitor,
                             idMonitor: nil)
@@ -102,7 +105,7 @@ struct ResoluxServerMain {
                 await enviar(
                     conexao,
                     resposta.serializar(semCorpo: pedido.metodo == "HEAD"))
-                await despedir(conexao)
+                await despedir(conexao, emWebSocket: false)
                 return
             }
 
@@ -120,6 +123,7 @@ struct ResoluxServerMain {
                     if !tratou {
                         await despedir(
                             conexao,
+                            emWebSocket: true,
                             assinatura: assinatura,
                             monitor: monitor,
                             idMonitor: idMonitor)
@@ -128,6 +132,7 @@ struct ResoluxServerMain {
                 case 8:
                     await despedir(
                         conexao,
+                        emWebSocket: true,
                         assinatura: assinatura,
                         monitor: monitor,
                         idMonitor: idMonitor)
@@ -272,6 +277,7 @@ struct ResoluxServerMain {
 
     private static func despedir(
         _ conexao: NWConnection,
+        emWebSocket: Bool = false,
         assinatura: UUID? = nil,
         monitor: MonitorHub? = nil,
         idMonitor: String? = nil) async {
@@ -281,7 +287,9 @@ struct ResoluxServerMain {
         if idMonitor != nil {
             // nada a fazer: o identificador só existe para o log do cliente
         }
-        await enviar(conexao, WsDecodificador.fechar())
+        if emWebSocket {
+            await enviar(conexao, WsDecodificador.fechar())
+        }
         conexao.cancel()
     }
 
