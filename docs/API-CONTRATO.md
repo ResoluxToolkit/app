@@ -39,7 +39,8 @@ Este arquivo é a fronteira única entre a engine Swift e o cliente web. A engin
 - O valor válido é parte do preflight/homologação; o daemon não descobre ou
   configura nada escrevendo no Arena.
 - Só `GET` e `HEAD`. `POST`, `PUT`, `PATCH` e `DELETE` voltam `405`.
-- O proxy não reescreve JSON; repassa status, corpo JSON e content type.
+- O proxy não reescreve JSON; repassa status, corpo JSON ou binário (as
+  thumbnails chegam como `image/*`) e content type.
 - Se o Arena não estiver aberto, responde `502` com
   `{"error":{"code":"arena_unavailable","message":"Arena REST unavailable"}}`.
 
@@ -97,10 +98,39 @@ criar evento que a engine não consegue honrar.
 Códigos reservados:
 
 - `invalid_message` — JSON ou `type` inválido.
+- `not_implemented` — nesta build, `chat.send` ainda não tem ChatEngine
+  plugada (código reservado até a tacada do ChatEngine).
 - `busy` — turno em progresso.
 - `backend_unavailable` — nenhum backend local respondeu.
 - `tool_denied` — política recusou uma tool.
 - `arena_unavailable` — MCP/REST não respondeu.
+
+### Monitor do Arena
+
+O daemon é quem polla o REST do Arena em `GET` read-only (intervalo de 1 s).
+O front assina o canal e nunca fala com o Arena diretamente. A assinatura é
+correlacionada pelo `id` do cliente:
+
+```json
+{"type":"monitor.subscribe","id":"mon-1"}
+```
+
+O daemon responde com a composição bruta do Arena quando ela muda:
+
+```json
+{"type":"monitor.update","id":"mon-1","payload":{"composition":{}}}
+```
+
+Na falha (e só na transição ok → falha), o daemon avisa e continua tentando:
+
+```json
+{"type":"monitor.error","id":"mon-1","payload":{"code":"arena_unavailable","message":"Arena REST unavailable"}}
+```
+
+- Enquanto o cliente mantém o WS de monitor, o daemon mantém o poll. Quando o
+  cliente fecha o socket, o daemon cancela o poll — nada de escrita, nada de
+  preferência do Arena.
+- As thumbnails continuam por proxy HTTP (`image/*`) nesta tacada.
 
 ## Regras da engine
 
