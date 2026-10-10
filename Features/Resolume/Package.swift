@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "Resolume", targets: ["Resolume"]),
         .library(name: "ResolumeUI", targets: ["ResolumeUI"]),
+        .executable(name: "ResoluxServer", targets: ["ResoluxServer"]),
     ],
     dependencies: [
         .package(path: "../../Packages/ResoluxCore"),
@@ -26,9 +27,13 @@ let package = Package(
             .product(name: "BorderBeamKit", package: "BorderBeamKit"),
             .product(name: "ThinkingOrbsKit", package: "ThinkingOrbsKit"),
         ]),
+        .executableTarget(
+            name: "ResoluxServer",
+            dependencies: ["Resolume"]
+        ),
         .testTarget(
             name: "ResolumeTests",
-            dependencies: ["Resolume", "ResolumeUI"],
+            dependencies: ["Resolume", "ResolumeUI", "ResoluxServer"],
             resources: [.copy("Fixtures/tools-schema.json")]
         ),
     ]
