@@ -109,23 +109,19 @@ Códigos reservados:
 - `ModeGate` decide `timeline`/`performance`; a UI só envia a intenção.
 - O cliente não manda prompt de sistema e não pede ferramenta diretamente.
 
-## Fluxo de dev do cliente (Meteor)
+## Fluxo de dev do cliente (Vite)
 
-- Em dev, a porta principal do Meteor (`meteor --port`) define onde o client
-  sobe, e as outras portas do processo derivam dela: mudar a principal desloca
-  todas juntas. Medido no `frontend` desta máquina: **(medido: conversa)**
-  - `meteor` → app `3000`, HMR (Rspack) `8080`, Mongo `3001`.
-  - `meteor -p 3003` → app `3003`, HMR `8083`, Mongo `3004`.
-  - Padrão observado: Mongo = principal + 1; HMR anda junto com a principal
-    (delta da principal aplicado sobre o base `8080`).
-- Atenção: o default do HMR do Meteor (`8080`) é o mesmo default de fábrica do
-  REST do Arena — os dois não dividem porta; nesta máquina o Arena estava em
-  `8008` e só voltou ao `8080` depois de o front fixar `--port 3003`.
+- O cliente é um bundle estático construído por Vite; não há server de app nem
+  banco no processo. Em dev, `npm start`/`npm run dev` sobe o Vite fixo em
+  `http://localhost:3003`; `npm run build` gera `dist/` e `npm run preview`
+  serve o bundle pronto na mesma porta. **(docs: conversa)**
+- Em dev, o Vite faz proxy de `/api/v1` (HTTP e WebSocket) para o daemon
+  `http://127.0.0.1:1980`, mantendo o cliente no mesmo origem; em produção o
+  `dist/` pode ser servido pelo próprio daemon e as chamadas são relativas.
+- Não existe mais porta de HMR a dividir com o Arena: o `8080` do antigo
+  Meteor/Rspack sumiu com a migração (histórico nas tacadas 44–47), e o REST
+  do Arena nesta máquina fica em `8008` ou no default de fábrica `8080`.
   **(medido: conversa)**
-- Voto do operador: o trio default (app `3000`, HMR `8080`, Mongo `3001`) é
-  portas de serviço interno, sem efeito no cliente — e é o que se altera. Em
-  dev o front fixa `--port 3003`: app `3003`, HMR `8083`, Mongo `3004`.
-  **(docs: conversa)**
 - Nenhuma dessas portas é contrato: o daemon continua fixo em `127.0.0.1:1980`
   e o front em dev roda na porta que o operador escolher, sem tocar no Arena.
 
@@ -136,4 +132,4 @@ Códigos reservados:
 - O cliente pode subir autenticação e backups só em idle; a nuvem nunca faz
   parte do caminho crítico do turno e nunca pode bloquear resposta.
 - O daemon continua a fonte de verdade do estado ativo. Sync remoto usa o que o
-  cliente já recebeu/exportou; o motor não conhece Supabase, Mongo nem Meteor.
+  cliente já recebeu/exportou; o motor não conhece Supabase nem Mongo.
