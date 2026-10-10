@@ -6,13 +6,19 @@ import Resolume
 /// `127.0.0.1:1980`, fala HTTP+WS com o front e mantém para si o contato
 /// read-only com o REST do Arena. Sem MCP, sem modelo, sem escrita nesta
 /// build — honestidade de estado na cara da API.
-@main
-struct ResoluxServerMain {
-    static func main() async {
-        let estado = EstadoSessao()
-        let gateway = ArenaGateway()
-        let monitor = MonitorHub(provedor: { try await gateway.composition() })
-        let motor = MotorChat()
+    @main
+    struct ResoluxServerMain {
+        static func main() async {
+            let persistencia = PersistenciaDisco()
+            let restaurada = try? await persistencia.preparar()
+            let estado = EstadoSessao(sessao: restaurada ?? SessaoV1())
+            let gateway = ArenaGateway()
+            let monitor = MonitorHub(provedor: { try await gateway.composition() })
+            let conversa = ConversaHub()
+            await persistencia.definirPublicador { corpo in
+                await conversa.publicar(corpo)
+            }
+            let motor = MotorChat()
 
         let parametros = NWParameters.tcp
         parametros.requiredLocalEndpoint = NWEndpoint.hostPort(
@@ -26,7 +32,9 @@ struct ResoluxServerMain {
                     estado: estado,
                     gateway: gateway,
                     monitor: monitor,
-                    motor: motor)
+                    conversa: conversa,
+                    motor: motor,
+                    persistencia: persistencia)
             }
         }
         listener.start(queue: .global(qos: .userInitiated))
@@ -40,12 +48,15 @@ struct ResoluxServerMain {
         estado: EstadoSessao,
         gateway: ArenaGateway,
         monitor: MonitorHub,
-        motor: MotorChat) async {
+        conversa: ConversaHub,
+        motor: MotorChat,
+        persistencia: PersistenciaDisco) async {
         conexao.start(queue: .global(qos: .userInitiated))
         var emWebSocket = false
         var buffer = Data()
         var decodificador = WsDecodificador()
         var assinatura: UUID?
+        var assinaturaConversa: UUID?
         var idMonitor: String?
 
         while true {
@@ -58,7 +69,9 @@ struct ResoluxServerMain {
                     emWebSocket: emWebSocket,
                     assinatura: assinatura,
                     monitor: monitor,
-                    idMonitor: idMonitor)
+                    idMonitor: idMonitor,
+                    conversa: conversa,
+                    assinaturaConversa: assinaturaConversa)
                 return
             }
 
@@ -68,7 +81,9 @@ struct ResoluxServerMain {
                     emWebSocket: emWebSocket,
                     assinatura: assinatura,
                     monitor: monitor,
-                    idMonitor: idMonitor)
+                    idMonitor: idMonitor,
+                    conversa: conversa,
+                    assinaturaConversa: assinaturaConversa)
                 return
             }
 
@@ -89,7 +104,9 @@ struct ResoluxServerMain {
                             emWebSocket: false,
                             assinatura: nil,
                             monitor: monitor,
-                            idMonitor: nil)
+                            idMonitor: nil,
+                            conversa: conversa,
+                            assinaturaConversa: nil)
                         return
                     }
 
@@ -104,7 +121,12 @@ struct ResoluxServerMain {
                     continue
                 }
 
-                let resposta = await responderHttp(pedido, estado: estado, gateway: gateway, motor: motor)
+                let resposta = await responderHttp(
+                    pedido,
+                    estado: estado,
+                    gateway: gateway,
+                    motor: motor,
+                    persistencia: persistencia)
                 await enviar(
                     conexao,
                     resposta.serializar(semCorpo: pedido.metodo == "HEAD"))
@@ -120,17 +142,22 @@ struct ResoluxServerMain {
                         mensagem.payload,
                         idMonitor: &idMonitor,
                         assinatura: &assinatura,
+                        assinaturaConversa: &assinaturaConversa,
                         conexao: conexao,
                         estado: estado,
                         monitor: monitor,
-                        motor: motor)
+                        conversa: conversa,
+                        motor: motor,
+                        persistencia: persistencia)
                     if !tratou {
                         await despedir(
                             conexao,
                             emWebSocket: true,
                             assinatura: assinatura,
                             monitor: monitor,
-                            idMonitor: idMonitor)
+                            idMonitor: idMonitor,
+                            conversa: conversa,
+                            assinaturaConversa: assinaturaConversa)
                         return
                     }
                 case 8:
@@ -139,7 +166,9 @@ struct ResoluxServerMain {
                         emWebSocket: true,
                         assinatura: assinatura,
                         monitor: monitor,
-                        idMonitor: idMonitor)
+                        idMonitor: idMonitor,
+                        conversa: conversa,
+                        assinaturaConversa: assinaturaConversa)
                     return
                 case 9:
                     await enviar(conexao, WsDecodificador.pong(payload: mensagem.payload))
@@ -162,10 +191,13 @@ struct ResoluxServerMain {
         _ payload: Data,
         idMonitor: inout String?,
         assinatura: inout UUID?,
+        assinaturaConversa: inout UUID?,
         conexao: NWConnection,
         estado: EstadoSessao,
         monitor: MonitorHub,
-        motor: MotorChat) async -> Bool {
+        conversa: ConversaHub,
+        motor: MotorChat,
+        persistencia: PersistenciaDisco) async -> Bool {
         guard let dados = try? JSONDecoder().decode([String: MCPValue].self, from: payload),
               case .string(let tipo) = dados["type"] ?? .string("") else {
             await enviarErro(conexao, codigo: "invalid_message", id: nil)
@@ -187,6 +219,23 @@ struct ResoluxServerMain {
             }
             assinatura = await monitor.assinar(entrega)
             idMonitor = identificador
+        case "conversa.subscribe":
+            if let anterior = assinaturaConversa {
+                await conversa.cancelar(anterior)
+            }
+            let identificador = id ?? "conv-1"
+            let identificadorSeguro = identificador
+            let entrega: ConversaHub.Entregador = { corpo in
+                await enviar(
+                    conexao,
+                    WsDecodificador.texto(mensagemConversa(id: identificadorSeguro, corpo: corpo)))
+            }
+            assinaturaConversa = await conversa.assinar(entrega)
+            // Snapshot imediato: o assinante já nasce com o estado do disco.
+            let corpo = await persistencia.conversaJson()
+            await enviar(
+                conexao,
+                WsDecodificador.texto(mensagemConversa(id: identificadorSeguro, corpo: corpo)))
         case "session.update":
             let patch: [String: MCPValue] = switch dados["payload"] {
             case .object(let objeto): objeto
@@ -221,9 +270,11 @@ struct ResoluxServerMain {
                 conexao,
                 WsDecodificador.texto(
                     #"{"type":"chat.started","id":\#(identificadorJson(id))}"#))
+            await persistencia.registrarEntrada(papel: "usuario", texto: texto)
             do {
                 let resposta = try await motor.responder(texto, sessao: await estado.snapshot())
                 await estado.definirFerramentas(await motor.totalFerramentas())
+                await persistencia.registrarEntrada(papel: "agente", texto: resposta)
                 await enviar(conexao, WsDecodificador.texto(mensagemResultadoChat(resposta, id: id)))
             } catch let falha as MotorChat.Falha {
                 await estado.definirFerramentas(await motor.totalFerramentas())
@@ -257,6 +308,10 @@ struct ResoluxServerMain {
                 #"{"type":"monitor.error","id":\#(idJson),"payload":{"code":"\#(codigo)","message":"\#(texto)"}}"#
         }
         await enviar(conexao, WsDecodificador.texto(mensagem))
+    }
+
+    private static func mensagemConversa(id: String, corpo: Data) -> String {
+        #"{"type":"conversa.update","id":\#(identificadorJson(id)),"payload":\#(String(decoding: corpo, as: UTF8.self))}"#
     }
 
     private static func mensagemResultadoChat(_ resposta: String, id: String?) -> String {
@@ -329,11 +384,33 @@ struct ResoluxServerMain {
         return String(decoding: dados, as: UTF8.self)
     }
 
-    private static func origemAceita(_ origem: String?) -> Bool {
+    // Aceita origens locais e da LAN: loopback, faixas privadas (incluindo o
+    // CGNAT do Tailscale) e nomes de máquina sem ponto ("mac", "mac.local").
+    // Origem externa sempre tem ponto no host, então site de fora continua
+    // de fora — o celular/PWA entra porque fala com o Vite na mesma LAN.
+    static func origemAceita(_ origem: String?) -> Bool {
         guard let origem else { return true }
         if origem == "null" { return true }
         guard let url = URL(string: origem), let host = url.host else { return false }
-        return ["localhost", "127.0.0.1", "::1"].contains(host.lowercased())
+        return hostOrigemAceito(host.lowercased())
+    }
+
+    static func hostOrigemAceito(_ host: String) -> Bool {
+        if host == "localhost" || host == "::1" { return true }
+        if !host.contains(".") || host.hasSuffix(".local") { return true }
+        return faixaPrivadaAceita(host)
+    }
+
+    private static func faixaPrivadaAceita(_ host: String) -> Bool {
+        let octetos = host.split(separator: ".").compactMap { UInt8($0) }
+        guard octetos.count == 4 else { return false }
+        let (primeiro, segundo) = (octetos[0], octetos[1])
+        if primeiro == 127 { return true }
+        if primeiro == 10 { return true }
+        if primeiro == 192 && segundo == 168 { return true }
+        if primeiro == 172 && (16...31).contains(segundo) { return true }
+        if primeiro == 100 && (64...127).contains(segundo) { return true }
+        return false
     }
 
     private static func despedir(
@@ -341,9 +418,14 @@ struct ResoluxServerMain {
         emWebSocket: Bool = false,
         assinatura: UUID? = nil,
         monitor: MonitorHub? = nil,
-        idMonitor: String? = nil) async {
+        idMonitor: String? = nil,
+        conversa: ConversaHub? = nil,
+        assinaturaConversa: UUID? = nil) async {
         if let assinatura {
             await monitor?.cancelar(assinatura)
+        }
+        if let assinaturaConversa {
+            await conversa?.cancelar(assinaturaConversa)
         }
         if idMonitor != nil {
             // nada a fazer: o identificador só existe para o log do cliente
@@ -360,12 +442,13 @@ struct ResoluxServerMain {
         _ pedido: PedidoHttp,
         estado: EstadoSessao,
         gateway: ArenaGateway,
-        motor: MotorChat) async -> RespostaHttp {
+        motor: MotorChat,
+        persistencia: PersistenciaDisco) async -> RespostaHttp {
         switch pedido.rota {
         case "/api/v1/health":
             return .json(Data(#"{"protocol":"resolux-api/1","status":"online"}"#.utf8))
         case "/api/v1/session":
-            return await responderSessao(pedido, estado: estado)
+            return await responderSessao(pedido, estado: estado, persistencia: persistencia)
         case "/api/v1/tools":
             let lista = await motor.listaFerramentas()
             guard !lista.isEmpty else {
@@ -381,6 +464,8 @@ struct ResoluxServerMain {
             let corpo: [String: MCPValue] = ["tools": .array(entradas)]
             let dados = (try? JSONEncoder().encode(corpo)) ?? Data(#"{"tools":[]}"#.utf8)
             return .json(dados)
+        case "/api/v1/conversa":
+            return await responderConversa(pedido, persistencia: persistencia)
         default:
             if pedido.rota.hasPrefix("/api/v1/arena") {
                 return await responderArena(pedido, gateway: gateway)
@@ -394,7 +479,8 @@ struct ResoluxServerMain {
 
     private static func responderSessao(
         _ pedido: PedidoHttp,
-        estado: EstadoSessao) async -> RespostaHttp {
+        estado: EstadoSessao,
+        persistencia: PersistenciaDisco) async -> RespostaHttp {
         if pedido.metodo == "GET" {
             return .json(await estado.json())
         }
@@ -407,6 +493,7 @@ struct ResoluxServerMain {
             }
             do {
                 _ = try await estado.aplicar(patch)
+                await persistencia.salvarSessao(await estado.snapshot())
                 return .json(await estado.json())
             } catch let erro as RecusaSessao {
                 switch erro {
@@ -437,6 +524,23 @@ struct ResoluxServerMain {
             codigo: "method_not_allowed",
             mensagem: "Apenas GET e PATCH.",
             status: 405)
+    }
+
+    private static func responderConversa(
+        _ pedido: PedidoHttp,
+        persistencia: PersistenciaDisco) async -> RespostaHttp {
+        switch pedido.metodo {
+        case "GET":
+            return .json(await persistencia.conversaJson())
+        case "DELETE":
+            await persistencia.limparConversa()
+            return .json(Data(#"{"turnos":[]}"#.utf8))
+        default:
+            return RespostaHttp.erro(
+                codigo: "method_not_allowed",
+                mensagem: "Apenas GET e DELETE.",
+                status: 405)
+        }
     }
 
     private static func responderArena(

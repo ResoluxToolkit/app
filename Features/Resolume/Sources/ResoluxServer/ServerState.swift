@@ -5,7 +5,7 @@ import Resolume
 /// real, journal, ModeGate) é tacada própria; aqui vive só o que o contrato
 /// v1 expõe — sem fingir capacidade: nesta build o daemon anuncia zero
 /// ferramentas e journal desligado até o ChatEngine ser plugado.
-public struct SessaoV1: Equatable, Sendable {
+public struct SessaoV1: Equatable, Codable, Sendable {
     public var mode: String
     public var backend: String
     public var model: String

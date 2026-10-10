@@ -12,8 +12,12 @@ Este arquivo é a fronteira única entre a engine Swift e o cliente web. A engin
 - WebSocket: `ws://127.0.0.1:1980/api/v1/ws`.
 - JSON `utf-8`; campo `Content-Type: application/json`.
 - Erro HTTP sempre em envelope: `{"error":{"code":"...","message":"..."}}`.
-- Sem rede externa e sem CORS. Origem aceita: `localhost`, `127.0.0.1` e mesmo
-  host resolvido como `::1`.
+- Sem CORS. O binding segue fixo em `127.0.0.1:1980` — quem vem de fora fala
+  com o proxy do cliente web. Origem aceita no handshake WS: loopback
+  (`localhost`, `127.0.0.1`, `::1`), faixas privadas (10/8, 172.16/12,
+  192.168/16 e o CGNAT 100.64/10 do Tailscale) e nomes de máquina sem ponto ou
+  terminados em `.local` (mDNS, ex.: `mac`, `mac.local`). Host de site externo
+  sempre tem ponto e continua de fora.
 - `ToolPolicy` permanece read-only e deny-by-default. Escrita só aparece na API
   quando o operador mudar esse voto.
 
@@ -25,6 +29,8 @@ Este arquivo é a fronteira única entre a engine Swift e o cliente web. A engin
 | `GET /api/v1/session` | estado atual da engine | `{"protocol":"resolux-api/1","mode":"timeline","backend":"ollama","model":"qwen3:1.7b","toolPolicy":"readOnly","toolsAllowed":22,"journalEnabled":true}` |
 | `PATCH /api/v1/session` | muda só estado permitido | mesmo corpo de `GET /api/v1/session` |
 | `GET /api/v1/tools` | ferramentas visíveis ao modelo | `{"tools":[{"name":"composition.get","description":"..."}]}` |
+| `GET /api/v1/conversa` | turnos persistidos pelo daemon | `{"turnos":[{"id":1,"papel":"usuario","texto":"...","hora":"10:01"}]}` |
+| `DELETE /api/v1/conversa` | limpa a conversa do disco | `{"turnos":[]}` |
 | `GET /api/v1/arena/**` | proxy read-only do REST do Arena | JSON do Arena |
 | `HEAD /api/v1/arena/**` | proxy read-only | headers do Arena |
 
@@ -64,6 +70,16 @@ Valores aceitos nesta versão:
   oferecer todas as ferramentas.
 - `toolPolicy` não é configurável: fica read-only nesta versão.
 
+### `/api/v1/conversa`
+
+- `GET` devolve o histórico em disco; `DELETE` limpa e devolve
+  `{"turnos":[]}`. Outro método volta `405`.
+- Turno `usuario` entra quando o `chat.started` sai; turno `agente` entra
+  quando o `chat.result` sai. Turno interrompido/errado não grava resposta.
+- Cada turno ganha `id` sequencial do disco — é a chave de reconciliação
+  dos clientes no push (abaixo). Campo fora de `{id, papel, texto, hora}`
+  não existe; `papel` é `usuario` ou `agente`.
+
 ## WebSocket
 
 Toda mensagem é um objeto com `type`. Mensagens de cliente devem ter `id` para
@@ -75,6 +91,7 @@ recebe `busy`.
 ```json
 {"type":"chat.send","id":"msg-1","payload":{"text":"Quantos clipes tem agora?"}}
 {"type":"session.update","id":"cfg-1","payload":{"mode":"timeline"}}
+{"type":"conversa.subscribe","id":"conv-1"}
 {"type":"ping","id":"ping-1"}
 ```
 
@@ -86,8 +103,20 @@ recebe `busy`.
 {"type":"chat.result","id":"msg-1","payload":{"message":{"role":"assistant","content":"Resposta final..."}}}
 {"type":"chat.error","id":"msg-1","payload":{"code":"backend_unavailable","message":"..."}}
 {"type":"session.updated","id":"cfg-1","payload":{"mode":"timeline"}}
+{"type":"conversa.update","id":"conv-1","payload":{"turnos":[...]}}
 {"type":"pong","id":"ping-1"}
 ```
+
+### Conversa em tempo real
+
+- `conversa.subscribe` responde na hora com um snapshot do disco e passa a
+  receber `conversa.update` (lista completa de turnos) a cada turno novo ou
+  limpeza — desktop e celular veem a mesma thread sem refresh.
+- O cliente reconcilia pelo `turno.id`: turnos que já tem não entram de
+  novo; mensagens locais sem correspondência no disco (erro de turno,
+  interrupção) ficam na thread.
+- No meio de um turno local o cliente ignora o push (a thread local manda);
+  o `chat.result` do próprio turno atualiza o que falta.
 
 Na v1 o turno é final, sem stream de tokens. Eventos de tool call ficam para uma
 versão futura porque o `ChatEngine` atual devolve o turno resolvido; isso evita
@@ -159,6 +188,10 @@ Na falha (e só na transição ok → falha), o daemon avisa e continua tentando
 
 ## Persistência e nuvem
 
+- A persistência local do daemon mora em `~/.resolux`: `sessao.json` guarda a
+  sessão restaurada no boot e `conversas/conversa.json` guarda os turnos
+  `{"turnos":[...]}`. Sincronizar na nuvem depois é trocar essa pasta de
+  bandeja, sem mudar o contrato.
 - Banco não entra no workflow local: chat, toolcalls, MCP, Arena e estado ativo
   rodam sem Supabase, Mongo ou qualquer nuvem.
 - O cliente pode subir autenticação e backups só em idle; a nuvem nunca faz

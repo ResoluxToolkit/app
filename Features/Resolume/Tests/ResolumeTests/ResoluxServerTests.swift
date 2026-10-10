@@ -10,6 +10,26 @@ struct ResoluxServerTests {
         #expect(WsHandshake.aceitar(chave: "dGhlIHNhbXBsZSBub25jZQ==") == "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
     }
 
+    @Test("origem do WS aceita loopback, LAN privada e nome de máquina")
+    func origemWs() {
+        #expect(ResoluxServerMain.origemAceita(nil))
+        #expect(ResoluxServerMain.origemAceita("null"))
+        #expect(ResoluxServerMain.origemAceita("http://localhost:3003"))
+        #expect(ResoluxServerMain.origemAceita("http://127.0.0.1:3003"))
+        #expect(ResoluxServerMain.origemAceita("http://mac:3003"))
+        #expect(ResoluxServerMain.origemAceita("http://mac.local:3003"))
+        #expect(ResoluxServerMain.origemAceita("http://192.168.0.109:3003"))
+        #expect(ResoluxServerMain.origemAceita("http://10.0.0.5:3003"))
+        #expect(ResoluxServerMain.origemAceita("http://172.16.9.9:3003"))
+        #expect(ResoluxServerMain.origemAceita("http://100.115.91.93:3003"))
+
+        #expect(!ResoluxServerMain.origemAceita("http://evil.com:3003"))
+        #expect(!ResoluxServerMain.origemAceita("http://8.8.8.8:3003"))
+        #expect(!ResoluxServerMain.origemAceita("http://172.32.0.1:3003"))
+        #expect(!ResoluxServerMain.origemAceita("http://100.200.0.1:3003"))
+        #expect(!ResoluxServerMain.origemAceita("sem-host"))
+    }
+
     @Test("decodificador WS lê frame mascarado canônico")
     func frameMascarado() {
         var decodificador = WsDecodificador()
