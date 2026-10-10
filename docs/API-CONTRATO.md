@@ -55,7 +55,11 @@ Campos opcionais; campo desconhecido volta `400`:
 Valores aceitos nesta versão:
 
 - `mode`: `"timeline"` ou `"performance"`.
-- `backend`: `"ollama"` ou `"applefm"`.
+- `backend`: `"ollama"`, `"applefm"` ou `"spike"`.
+  - `"spike"` usa o endpoint OpenAI-compatível da conta do Spike: token e
+    `baseUrl` lidos de `~/.spike/account.json` no host da engine (nada vai no
+    repo nem aparece na UI). Modelo padrão `"Spike"`; `model` do PATCH troca o
+    id enviado ao endpoint.
 - `toolAllowlist`: lista de nomes declarados em `/api/v1/tools`; `null` volta a
   oferecer todas as ferramentas.
 - `toolPolicy` não é configurável: fica read-only nesta versão.
@@ -98,8 +102,6 @@ criar evento que a engine não consegue honrar.
 Códigos reservados:
 
 - `invalid_message` — JSON ou `type` inválido.
-- `not_implemented` — nesta build, `chat.send` ainda não tem ChatEngine
-  plugada (código reservado até a tacada do ChatEngine).
 - `busy` — turno em progresso.
 - `backend_unavailable` — nenhum backend local respondeu.
 - `tool_denied` — política recusou uma tool.

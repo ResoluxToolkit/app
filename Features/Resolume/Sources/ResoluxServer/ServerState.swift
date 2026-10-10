@@ -10,16 +10,21 @@ public struct SessaoV1: Equatable, Sendable {
     public var backend: String
     public var model: String
     public var toolAllowlist: [String]?
+    /// Ferramentas anunciadas pelo servidor MCP do Arena. Zero até o primeiro
+    /// turno conectar o MCP — honestidade de estado, não promessa.
+    public var ferramentas: Int
 
     public init(
         mode: String = "timeline",
         backend: String = "ollama",
         model: String = "",
-        toolAllowlist: [String]? = nil) {
+        toolAllowlist: [String]? = nil,
+        ferramentas: Int = 0) {
         self.mode = mode
         self.backend = backend
         self.model = model
         self.toolAllowlist = toolAllowlist
+        self.ferramentas = ferramentas
     }
 }
 
@@ -31,7 +36,7 @@ public enum RecusaSessao: Error, Equatable {
 
 public enum SessaoV1Regras {
     static let modos = ["timeline", "performance"]
-    static let backends = ["ollama", "applefm"]
+    static let backends = ["ollama", "applefm", "spike"]
 
     /// Aplica um PATCH campo a campo. Campo fora do contrato vira
     /// `.campoDesconhecido` (contrato: 400) e valor fora do domínio vira
@@ -95,7 +100,7 @@ public enum SessaoV1Regras {
             "backend": .string(sessao.backend),
             "model": .string(sessao.model),
             "toolPolicy": .string("readOnly"),
-            "toolsAllowed": .int(sessao.toolAllowlist?.count ?? 0),
+            "toolsAllowed": .int(sessao.ferramentas),
             "journalEnabled": .bool(false),
         ]
         return (try? JSONEncoder().encode(dicionario)) ?? Data(#"{"protocol":"resolux-api/1"}"#.utf8)
@@ -128,5 +133,9 @@ public actor EstadoSessao {
     public func aplicar(_ patch: [String: MCPValue]) throws -> SessaoV1 {
         sessao = try SessaoV1Regras.aplicar(patch, em: sessao)
         return sessao
+    }
+
+    public func definirFerramentas(_ total: Int) {
+        sessao.ferramentas = total
     }
 }

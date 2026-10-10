@@ -12,6 +12,7 @@ struct ResoluxServerMain {
         let estado = EstadoSessao()
         let gateway = ArenaGateway()
         let monitor = MonitorHub(provedor: { try await gateway.composition() })
+        let motor = MotorChat()
 
         let parametros = NWParameters.tcp
         parametros.requiredLocalEndpoint = NWEndpoint.hostPort(
@@ -24,7 +25,8 @@ struct ResoluxServerMain {
                     conexao,
                     estado: estado,
                     gateway: gateway,
-                    monitor: monitor)
+                    monitor: monitor,
+                    motor: motor)
             }
         }
         listener.start(queue: .global(qos: .userInitiated))
@@ -37,7 +39,8 @@ struct ResoluxServerMain {
         _ conexao: NWConnection,
         estado: EstadoSessao,
         gateway: ArenaGateway,
-        monitor: MonitorHub) async {
+        monitor: MonitorHub,
+        motor: MotorChat) async {
         conexao.start(queue: .global(qos: .userInitiated))
         var emWebSocket = false
         var buffer = Data()
@@ -101,7 +104,7 @@ struct ResoluxServerMain {
                     continue
                 }
 
-                let resposta = await responderHttp(pedido, estado: estado, gateway: gateway)
+                let resposta = await responderHttp(pedido, estado: estado, gateway: gateway, motor: motor)
                 await enviar(
                     conexao,
                     resposta.serializar(semCorpo: pedido.metodo == "HEAD"))
@@ -119,7 +122,8 @@ struct ResoluxServerMain {
                         assinatura: &assinatura,
                         conexao: conexao,
                         estado: estado,
-                        monitor: monitor)
+                        monitor: monitor,
+                        motor: motor)
                     if !tratou {
                         await despedir(
                             conexao,
@@ -160,7 +164,8 @@ struct ResoluxServerMain {
         assinatura: inout UUID?,
         conexao: NWConnection,
         estado: EstadoSessao,
-        monitor: MonitorHub) async -> Bool {
+        monitor: MonitorHub,
+        motor: MotorChat) async -> Bool {
         guard let dados = try? JSONDecoder().decode([String: MCPValue].self, from: payload),
               case .string(let tipo) = dados["type"] ?? .string("") else {
             await enviarErro(conexao, codigo: "invalid_message", id: nil)
@@ -200,11 +205,32 @@ struct ResoluxServerMain {
                 await enviarErro(conexao, codigo: "backend_unavailable", id: id)
             }
         case "chat.send":
-            await enviarErro(
+            let texto: String? = switch dados["payload"] {
+            case .object(let objeto): objeto["text"]?.stringValue
+            default: nil
+            }
+            guard let texto, !texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                await enviarErro(
+                    conexao,
+                    codigo: "invalid_message",
+                    id: id,
+                    mensagem: "chat.send precisa de payload.text.")
+                return true
+            }
+            await enviar(
                 conexao,
-                codigo: "not_implemented",
-                id: id,
-                mensagem: "ChatEngine ainda não está plugada nesta build.")
+                WsDecodificador.texto(
+                    #"{"type":"chat.started","id":\#(identificadorJson(id))}"#))
+            do {
+                let resposta = try await motor.responder(texto, sessao: await estado.snapshot())
+                await estado.definirFerramentas(await motor.totalFerramentas())
+                await enviar(conexao, WsDecodificador.texto(mensagemResultadoChat(resposta, id: id)))
+            } catch let falha as MotorChat.Falha {
+                await estado.definirFerramentas(await motor.totalFerramentas())
+                await enviar(conexao, WsDecodificador.texto(descricaoErroChat(falha, id: id)))
+            } catch {
+                await enviarErro(conexao, codigo: "backend_unavailable", id: id, mensagem: "O turno de chat falhou.")
+            }
         case "ping":
             await enviar(
                 conexao,
@@ -231,6 +257,41 @@ struct ResoluxServerMain {
                 #"{"type":"monitor.error","id":\#(idJson),"payload":{"code":"\#(codigo)","message":"\#(texto)"}}"#
         }
         await enviar(conexao, WsDecodificador.texto(mensagem))
+    }
+
+    private static func mensagemResultadoChat(_ resposta: String, id: String?) -> String {
+        let payload: [String: MCPValue] = [
+            "message": .object([
+                "role": .string("assistant"),
+                "content": .string(resposta),
+            ]),
+        ]
+        let corpo = (try? JSONEncoder().encode(payload)) ?? Data("{}".utf8)
+        return #"{"type":"chat.result","id":\#(identificadorJson(id)),"payload":\#(String(decoding: corpo, as: UTF8.self))}"#
+    }
+
+    private static func descricaoErroChat(_ falha: MotorChat.Falha, id: String?) -> String {
+        let codigo: String
+        let mensagem: String
+        switch falha {
+        case .turnoOcupado:
+            codigo = "busy"
+            mensagem = "Já existe um turno de chat em andamento."
+        case .backendIndisponivel(let texto):
+            codigo = "backend_unavailable"
+            mensagem = texto
+        case .tokenAusente(let texto):
+            codigo = "backend_unavailable"
+            mensagem = texto
+        case .arenaMcpIndisponivel(let texto):
+            codigo = "arena_unavailable"
+            mensagem = texto
+        case .modeloFalhou(let texto):
+            codigo = "backend_unavailable"
+            mensagem = "O backend de chat falhou: \(texto)"
+        }
+        return
+            #"{"type":"chat.error","id":\#(identificadorJson(id)),"payload":{"code":"\#(codigo)","message":"\#(mensagem)"}}"#
     }
 
     private static func enviarErro(
@@ -298,14 +359,28 @@ struct ResoluxServerMain {
     private static func responderHttp(
         _ pedido: PedidoHttp,
         estado: EstadoSessao,
-        gateway: ArenaGateway) async -> RespostaHttp {
+        gateway: ArenaGateway,
+        motor: MotorChat) async -> RespostaHttp {
         switch pedido.rota {
         case "/api/v1/health":
             return .json(Data(#"{"protocol":"resolux-api/1","status":"online"}"#.utf8))
         case "/api/v1/session":
             return await responderSessao(pedido, estado: estado)
         case "/api/v1/tools":
-            return .json(Data(#"{"tools":[]}"#.utf8))
+            let lista = await motor.listaFerramentas()
+            guard !lista.isEmpty else {
+                return .json(Data(#"{"tools":[]}"#.utf8))
+            }
+            let entradas: [MCPValue] = lista.map { entrada in
+                var objeto: [String: MCPValue] = ["name": .string(entrada["name"] ?? "")]
+                if let descricao = entrada["description"] {
+                    objeto["description"] = .string(descricao)
+                }
+                return .object(objeto)
+            }
+            let corpo: [String: MCPValue] = ["tools": .array(entradas)]
+            let dados = (try? JSONEncoder().encode(corpo)) ?? Data(#"{"tools":[]}"#.utf8)
+            return .json(dados)
         default:
             if pedido.rota.hasPrefix("/api/v1/arena") {
                 return await responderArena(pedido, gateway: gateway)
