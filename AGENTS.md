@@ -42,6 +42,13 @@ Swift monorepo (SwiftPM local packages + Xcode apps, Swift tools 6.0, floor macO
 - `ENABLE_APP_SANDBOX = NO` no app macOS é deliberado (precisa spawnar o processo MCP do Arena como filho). Não reativar.
 - `.spike-remote/` é resíduo de sessão; nunca entra em commit.
 
+# Identidade do agente (commits/PRs ≠ terminal do operador)
+
+- Commits, pushes e `gh` do agente saem como `resolux-org`; o terminal do operador segue `Luiz Neto <lmoraes@me.com>` (git config do repo).
+- Antes de commit, push ou `gh`, carregar: `set -a; source ~/.spike/resolux-org.env; set +a` — define autor/comitter `resolux-org`, a key SSH `~/.ssh/resolux_org_ed25519` e o `GH_TOKEN` dele.
+- Nunca alterar `git config` global, trocar remote nem tocar nas preferências do Arena.
+- Quando o teste exigir Arena REST, abrir o Arena antes de rodar (`/Applications/Resolume Arena/Arena.app`), leitura pura.
+
 # Documentação (ler antes de mexer em área sensível)
 
 - `docs/HANDOFF.md` — fonte de verdade do estado da sessão/projeto.

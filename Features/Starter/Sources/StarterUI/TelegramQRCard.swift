@@ -58,22 +58,57 @@ public struct TelegramQRCard: View {
             HStack(spacing: 16) {
                 QRMatrixView(matrix: Self.matrix)
                     .frame(width: 128, height: 128)
-                    .background(Palette.foreground.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .modifier(QRCardGlassModifier())
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("@ResoluxToolkit")
-                        .font(.headline)
-                        .foregroundStyle(Palette.foreground)
-                    Text("Canal do projeto no Telegram.")
-                        .font(.footnote)
-                        .foregroundStyle(Palette.muted)
-                    Link("Abrir canal", destination: URL(string: "https://t.me/ResoluxToolkit")!)
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("@ResoluxToolkit")
+                            .font(.headline)
+                            .foregroundStyle(Palette.foreground)
+                        Text("Canal do projeto no Telegram.")
+                            .font(.footnote)
+                            .foregroundStyle(Palette.muted)
+                    }
+                    Link(destination: URL(string: "https://t.me/ResoluxToolkit")!) {
+                        HStack(spacing: 6) {
+                            Text("Abrir canal")
+                            Image(systemName: "arrow.up.right")
+                        }
                         .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Palette.cyan)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                    }
+                    .modifier(TelegramLinkGlassModifier())
                 }
                 Spacer(minLength: 0)
             }
+        }
+    }
+}
+
+private struct QRCardGlassModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        if #available(macOS 26.0, iOS 26.0, *) {
+            content
+                .glassEffect(.clear, in: shape)
+                .overlay(shape.strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+        } else {
+            content
+                .background(shape.fill(Palette.foreground.opacity(0.08)))
+                .clipShape(shape)
+        }
+    }
+}
+
+private struct TelegramLinkGlassModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, iOS 26.0, *) {
+            content
+                .buttonStyle(.glass)
+        } else {
+            content
+                .foregroundStyle(Palette.cyan)
         }
     }
 }

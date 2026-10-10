@@ -598,3 +598,9 @@ documentado. Falta plugar `OperationMode`/`ModeGate` no `ChatEngine` (default `.
 parâmetro com default) — e aí a chave dele ganha dentes: em `Timeline` a régua **calcula**, em
 `Performance` ela **recusa calcular** e mede. Fila crescendo: régua visual (sensação espaço/tempo,
 §13), rename em lote com `#` (§13.9), e agora "apagão previsto vs esquecido".
+
+## 15. Qual licença de topo o ResoluxToolkit adota?
+Com a política NDI escrita em `docs/NDI-POLICY.md`, o repo precisa de licença permissiva antes
+de qualquer distribuição: MIT, Apache-2.0 ou BSD-3-Clause. Não escolhi por você porque isso muda
+patente/attribution/contribuição. Enquanto não houver voto, não crio `LICENSE` e não implemento
+runtime NDI.

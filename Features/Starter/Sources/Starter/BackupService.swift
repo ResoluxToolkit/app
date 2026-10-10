@@ -32,7 +32,7 @@ public final class BackupService: @unchecked Sendable {
 
         let sources = ["\(home.path)/.spike", "\(home.path)/.openclaw"]
         let excludes = ["--exclude=.build", "--exclude=DerivedData", "--exclude=node_modules"]
-        var args = ["-czf", archivePath] + excludes + sources
+        let args = ["-czf", archivePath] + excludes + sources
 
         progress?("empacotando ~/.spike e ~/.openclaw…")
         try await Self.runProcess("/usr/bin/tar", arguments: args)

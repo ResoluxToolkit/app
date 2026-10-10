@@ -13,7 +13,7 @@ let package = Package(
     ],
     dependencies: [
         .package(
-            path: "../../../Libraries.dev/packages/border-beam/ports/ios/BorderBeamKit"
+            path: "../../../../../Libraries.dev/packages/border-beam/ports/ios/BorderBeamKit"
         ),
         .package(path: "../../Packages/ResoluxCore"),
         .package(path: "../../Packages/ResoluxPlatform"),

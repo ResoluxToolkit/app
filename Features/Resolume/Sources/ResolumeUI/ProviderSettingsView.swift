@@ -112,22 +112,24 @@ public struct ProviderSettingsView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            ToneIcon(symbol: "slider.horizontal.3", tone: .violet)
+        GlassEffectGroup(spacing: 12) {
+            HStack(spacing: 12) {
+                ToneIcon(symbol: "slider.horizontal.3", tone: .violet)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Ajustes")
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-                Text("provedor local · MCP")
-                    .font(.caption)
-                    .foregroundStyle(Palette.muted)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ajustes")
+                        .font(.system(size: 18, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("provedor local · MCP")
+                        .font(.caption)
+                        .foregroundStyle(Palette.muted)
+                }
+
+                Spacer(minLength: 8)
+                StatusPill(
+                    text: model.isReadOnly ? "somente-leitura" : "escrita",
+                    tone: model.isReadOnly ? .green : .amber)
             }
-
-            Spacer(minLength: 8)
-            StatusPill(
-                text: model.isReadOnly ? "somente-leitura" : "escrita",
-                tone: model.isReadOnly ? .green : .amber)
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 12)
@@ -148,15 +150,27 @@ public struct ProviderSettingsView: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
+                .modifier(ProviderFieldGlassModifier())
+        }
+    }
+}
+
+private struct ProviderFieldGlassModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        if #available(macOS 26.0, iOS 26.0, *) {
+            content
+                .glassEffect(.clear, in: shape)
+                .overlay(shape.strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
+        } else {
+            content
                 .background {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    shape
                         .fill(.ultraThinMaterial)
                         .environment(\.colorScheme, .dark)
                         .opacity(0.7)
                 }
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
+                .overlay(shape.strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
         }
     }
 }

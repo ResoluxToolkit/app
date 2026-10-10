@@ -43,6 +43,46 @@ public struct ChatMessage: Codable, Sendable, Equatable {
     }
 }
 
+public enum ReasoningFilter {
+    /// Remove blocos de raciocínio que alguns modelos locais enviam no content.
+    /// Aceita a tag think e o fenced block no início observado no gateway.
+    static let thinkingOpenTag = "\u{3C}think\u{3E}"
+    static let thinkingCloseTag = "\u{3C}/think\u{3E}"
+
+    public static func strip(from text: String) -> String {
+        var value = text
+        while let open = value.range(of: thinkingOpenTag, options: [.caseInsensitive]) {
+            let tail = String(value[open.upperBound...])
+            guard let close = tail.range(of: thinkingCloseTag, options: [.caseInsensitive]) else {
+                return text
+            }
+            value = String(value[..<open.lowerBound]) + String(tail[close.upperBound...])
+        }
+        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty { return text }
+
+        let fence = "```"
+        guard value.hasPrefix(fence) else { return value }
+        let body = value.dropFirst(fence.count)
+        if let close = body.range(of: "\n\(fence)") {
+            let inner = String(body[..<close.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let rest = String(body[close.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if inner.isEmpty && !rest.isEmpty { return rest }
+        }
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasSuffix(fence) {
+            let inner = String(trimmed.dropLast(fence.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let rest = String(trimmed.dropLast(fence.count))
+            if inner.isEmpty { return text }
+            if !rest.contains(fence) { return inner }
+        }
+        return value
+    }
+}
+
 public struct ChatToolSpec: Encodable, Sendable {
     public struct Function: Encodable, Sendable {
         public var name: String

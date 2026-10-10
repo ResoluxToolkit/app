@@ -12,7 +12,10 @@ let package = Package(
         .package(path: "../../Packages/ResoluxCore"),
         .package(path: "../../Packages/ResoluxDesignSystem"),
         .package(
-            path: "../../../Libraries.dev/packages/border-beam/ports/ios/BorderBeamKit"
+            path: "../../../../../Libraries.dev/packages/border-beam/ports/ios/BorderBeamKit"
+        ),
+        .package(
+            path: "../../../../../Libraries.dev/packages/thinking-orbs/ports/ios/ThinkingOrbsKit"
         ),
     ],
     targets: [
@@ -21,6 +24,7 @@ let package = Package(
             "Resolume",
             .product(name: "ResoluxDesignSystem", package: "ResoluxDesignSystem"),
             .product(name: "BorderBeamKit", package: "BorderBeamKit"),
+            .product(name: "ThinkingOrbsKit", package: "ThinkingOrbsKit"),
         ]),
         .testTarget(
             name: "ResolumeTests",

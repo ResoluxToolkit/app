@@ -1,7 +1,8 @@
 import FoundationModels
-import BorderBeamKit
+import AppKit
 import ResoluxDesignSystem
 import Resolume
+import ThinkingOrbsKit
 import SwiftUI
 
 /// Conversa com o gateway local (MCP completo) e Foundation Models como fallback.
@@ -20,10 +21,15 @@ public final class AssistantModel {
         public let id = UUID()
         public let role: String
         public let text: String
+        public let createdAt = Date()
 
         public init(role: String, text: String) {
             self.role = role
             self.text = text
+        }
+
+        public var tokenEstimate: Int {
+            max(1, (text.count + 3) / 4)
         }
     }
 
@@ -102,8 +108,34 @@ public final class AssistantModel {
                 let answer = try await sendViaFM(text)
                 lines.append(Line(role: "assistant", text: answer.isEmpty ? "sem resposta" : answer))
             } catch {
-                lines.append(Line(role: "system", text: "⚠️ \(error.localizedDescription)"))
+                lines.append(Line(role: "system", text: "Erro: \(error.localizedDescription)"))
             }
+        }
+    }
+
+    public func startNewConversation() {
+        lines.removeAll()
+        draft = ""
+        isFMFallbackActive = false
+
+        let systemModel = SystemLanguageModel.default
+        guard case .available = systemModel.availability else { return }
+
+        if let mcpClient, !fmToolInfos.isEmpty {
+            let tools = MCPFoundationModelToolFactory.makeTools(
+                from: fmToolInfos,
+                client: mcpClient,
+                policy: ProviderSettingsStore.shared.toolPolicy,
+                journal: writeJournal)
+            fmSession = LanguageModelSession(model: systemModel, tools: tools)
+            fmPolicyMode = ProviderSettingsStore.shared.toolPolicy.mode
+        } else {
+            fmSession = LanguageModelSession(
+                model: systemModel,
+                instructions: """
+                Você é o Assistente Resolux. Responda em português do Brasil, \
+                direto ao ponto e sem inventar estado do Arena.
+                """)
         }
     }
 
@@ -295,24 +327,44 @@ public struct AssistantView: View {
     @State private var model = AssistantModel()
     @State private var settings = ProviderSettingsStore.shared
     @State private var scrolledToLineID: AssistantModel.Line.ID?
+    @State private var isMemoryReviewActive = false
     @FocusState private var isMessageFocused: Bool
 
     public init() {}
 
     public var body: some View {
         ZStack {
-            AuroraBackground()
+            AssistantBackdrop()
 
             VStack(spacing: 0) {
                 header
-                transcript
-                inputBar
+
+                HStack(alignment: .top, spacing: 16) {
+                    sidebar
+                        .frame(width: 260)
+                        .frame(maxHeight: .infinity, alignment: .top)
+
+                    Spacer(minLength: 0)
+
+                    VStack(spacing: 16) {
+                        transcript
+                        contextBar
+                        inputBar
+                    }
+                    .frame(maxWidth: 760, maxHeight: .infinity, alignment: .top)
+
+                    Spacer(minLength: 0)
+
+                    contextPanel
+                        .frame(width: 320)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
             }
-            .frame(maxWidth: 620)
-            .padding(.horizontal, 16)
         }
-        .foregroundStyle(Palette.foreground)
-        .frame(minWidth: 460, minHeight: 440)
+        .foregroundStyle(Palette.textPrimary)
+        .frame(minWidth: 1080, minHeight: 700)
         .preferredColorScheme(.dark)
         .onAppear {
             Task { model.connectMCP() }
@@ -323,23 +375,26 @@ public struct AssistantView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            ToneIcon(symbol: "sparkles", tone: .violet, size: 42)
+        GlassEffectGroup(spacing: 12) {
+            HStack(spacing: 12) {
+                ToneIcon(symbol: "sparkles", tone: .violet, size: 42)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Assistente")
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-                Text(statusDetail)
-                    .font(.caption)
-                    .foregroundStyle(Palette.muted)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Assistente")
+                        .font(.system(size: 18, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Palette.textPrimary)
+                    Text(statusDetail)
+                        .font(.caption)
+                        .foregroundStyle(Palette.textSecondary)
+                }
+
+                Spacer(minLength: 8)
+                StatusPill(text: status, tone: statusTone)
             }
-
-            Spacer(minLength: 8)
-            StatusPill(text: status, tone: statusTone)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .modifier(AssistantGlassModifier(cornerRadius: 20))
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 12)
     }
 
     private var status: String {
@@ -381,29 +436,49 @@ public struct AssistantView: View {
 
     private var transcript: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
+            LazyVStack(alignment: .leading, spacing: 12) {
                 if model.lines.isEmpty {
-                    initialCard
+                    GeometryReader { proxy in
+                        emptyState
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                    }
                 }
                 ForEach(model.lines) { line in
                     bubble(for: line)
                         .id(line.id)
                 }
                 if model.isBusy {
-                    HStack(spacing: 10) {
-                        ThinkingOrb()
-                        Text("pensando…")
+                    HStack(alignment: .center, spacing: 10) {
+                        ThinkingOrb(
+                            state: model.isFMFallbackActive ? .composing : .working,
+                            size: .px20,
+                            displaySize: 20)
+                        Text("Analisando o monitor do Arena…")
                             .font(.footnote)
-                            .foregroundStyle(Palette.muted)
+                            .foregroundStyle(Palette.textSecondary)
                         Spacer(minLength: 0)
+                        assistantChip("working", systemImage: "cpu", tint: Palette.accentViolet)
                     }
-                    .padding(.leading, 4)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .modifier(AssistantGlassModifier(cornerRadius: 14))
+                } else if !model.lines.isEmpty {
+                    HStack(spacing: 12) {
+                        suggestionChip("Verificar câmera", symbol: "camera.viewfinder")
+                        suggestionChip("Status do monitor", symbol: "display")
+                        suggestionChip("Ver atualizações", symbol: "arrow.triangle.2.circlepath")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
                 }
             }
-            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 20)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .defaultScrollAnchor(.bottom)
+        .defaultScrollAnchor(
+            UnitPoint(x: 0.5, y: model.lines.isEmpty ? 0.5 : 1.0))
         .scrollPosition(id: $scrolledToLineID, anchor: .bottom)
         .onChange(of: model.lines.count) {
             scrollToEndIfEnabled()
@@ -416,6 +491,7 @@ public struct AssistantView: View {
         .task {
             scrollToEndIfEnabled()
         }
+        .modifier(AssistantGlassModifier(cornerRadius: 20))
     }
 
     private func scrollToEndIfEnabled() {
@@ -425,36 +501,139 @@ public struct AssistantView: View {
         }
     }
 
-    private var initialCard: some View {
-        GlassCard(cornerRadius: 18) {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Conversa direta com o modelo do sistema", systemImage: "bubble.left.and.bubble.right")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-                Text(model.unavailableMessage ?? "Fale, pergunte e peça leitura do Arena. O Assistente usa o gateway local (porta 8317) com MCP completo e o Apple FM como fallback.")
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            ThinkingOrb(state: .breathing, size: .px64)
+
+            VStack(spacing: 6) {
+                Text("Nova conversa")
+                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Palette.textPrimary)
+                Text(model.unavailableMessage ?? "Fale, pergunte e peça leitura do Arena. O gateway local tem MCP completo e o Apple FM entra como fallback.")
                     .font(.footnote)
-                    .foregroundStyle(Palette.muted)
+                    .foregroundStyle(Palette.textSecondary)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 8) {
+                suggestionChip("Verificar câmera", symbol: "camera.viewfinder")
+                suggestionChip("Status do monitor", symbol: "display")
+                suggestionChip("Ver atualizações", symbol: "arrow.triangle.2.circlepath")
+            }
         }
+        .frame(maxWidth: .infinity)
     }
 
     private func bubble(for line: AssistantModel.Line) -> some View {
-        HStack {
+        HStack(alignment: .bottom) {
             if line.role == "user" { Spacer(minLength: 56) }
-            bubbleContent(for: line)
-                .textSelection(.enabled)
-                .font(.system(size: 14))
-                .foregroundStyle(Palette.foreground)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(bubbleFill(for: line), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(Palette.hairline, lineWidth: 1))
+
+            message(for: line)
+                .frame(maxWidth: .infinity, alignment: line.role == "user" ? .trailing : .leading)
+
             if line.role != "user" { Spacer(minLength: 56) }
         }
+    }
+
+    @ViewBuilder
+    private func message(for line: AssistantModel.Line) -> some View {
+        if line.role == "user" {
+            VStack(alignment: .trailing, spacing: 5) {
+                Text(NSUserName().isEmpty ? "VOCÊ" : NSUserName().uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Palette.brand)
+
+                Text(line.text)
+                    .textSelection(.enabled)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Palette.textPrimary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: 620, alignment: .leading)
+                    .modifier(AssistantBubbleModifier(role: line.role))
+
+                Text(line.createdAt.formatted(date: .omitted, time: .shortened))
+                    .font(.caption2)
+                    .foregroundStyle(Palette.textTertiary)
+            }
+        } else if line.role == "assistant" {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    ThinkingOrb(
+                        state: .breathing,
+                        size: .px20,
+                        displaySize: 20)
+
+                    Text("RESOLUX")
+                        .font(.caption.weight(.semibold))
+                        .tracking(1.2)
+                        .foregroundStyle(Palette.textSecondary)
+
+                    Spacer(minLength: 12)
+
+                    assistantChip("Pro", systemImage: "checkmark.seal", tint: Palette.accentViolet)
+                }
+
+                bubbleContent(for: line)
+                    .foregroundStyle(Palette.textPrimary)
+
+                Rectangle()
+                    .fill(Palette.assistantBorder)
+                    .frame(height: 1)
+
+                HStack(spacing: 12) {
+                    Text(
+                        "\(line.createdAt.formatted(date: .omitted, time: .shortened)) · ≈ \(line.tokenEstimate) tokens"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(Palette.textTertiary)
+
+                    Spacer(minLength: 12)
+
+                    messageActionButton(
+                        symbol: "doc.on.doc",
+                        accessibilityLabel: "Copiar resposta") {
+                            let pasteboard = NSPasteboard.general
+                            pasteboard.clearContents()
+                            pasteboard.setString(line.text, forType: .string)
+                    }
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(AssistantGlassModifier(cornerRadius: 20))
+        } else {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Palette.alert)
+                Text(line.text)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textSecondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .modifier(AssistantGlassModifier(cornerRadius: 14))
+        }
+    }
+
+    private func messageActionButton(
+        symbol: String,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Palette.textSecondary)
+                .frame(width: 30, height: 30)
+                .background(Color.white.opacity(0.05), in: Circle())
+                .overlay(Circle().strokeBorder(Palette.assistantBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private struct MarkdownItem: Identifiable {
@@ -527,23 +706,18 @@ public struct AssistantView: View {
         }
     }
 
-    private func bubbleFill(for line: AssistantModel.Line) -> AnyShapeStyle {
-        if line.role == "user" {
-            return AnyShapeStyle(Palette.deepViolet.opacity(0.45))
-        }
-        if line.role == "system" {
-            return AnyShapeStyle(Palette.coral.opacity(0.18))
-        }
-        return AnyShapeStyle(.ultraThinMaterial)
-    }
-
     private var inputBar: some View {
         HStack(spacing: 10) {
-            TextField("Falar com o Assistente…", text: $model.draft, axis: .vertical)
+            Image(systemName: "mic")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Palette.textSecondary)
+                .frame(width: 30, height: 30)
+
+            TextField("Pergunte ao Resolux ou peça uma ação…", text: $model.draft, axis: .vertical)
                 .lineLimit(1...4)
                 .textFieldStyle(.plain)
                 .focused($isMessageFocused)
-                .foregroundStyle(Palette.foreground)
+                .foregroundStyle(Palette.textPrimary)
                 .onSubmit {
                     Task { await model.sendDraft() }
                 }
@@ -551,33 +725,416 @@ public struct AssistantView: View {
             Button {
                 Task { await model.sendDraft() }
             } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 26))
-                    .foregroundStyle(model.canSend ? AnyShapeStyle(Palette.primaryGradient) : AnyShapeStyle(Palette.muted))
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(
+                        model.canSend
+                            ? AnyShapeStyle(Palette.assistantBackground)
+                            : AnyShapeStyle(Palette.textTertiary))
+                    .frame(width: 32, height: 32)
+                    .background(
+                        model.canSend
+                            ? Palette.brand
+                            : Palette.textTertiary.opacity(0.18),
+                        in: Circle())
             }
             .buttonStyle(.plain)
             .disabled(!model.canSend)
         }
         .padding(.leading, 18)
         .padding(.trailing, 12)
-        .padding(.vertical, 12)
-        .background {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark)
-                .opacity(0.72)
+        .frame(height: 56)
+        .modifier(AssistantGlassModifier(cornerRadius: 28))
+        .overlay {
+            Capsule()
+                .strokeBorder(isMessageFocused ? Palette.brand : Palette.assistantBorder, lineWidth: 1)
+
+            if model.isBusy {
+                BeamStroke(cornerRadius: 28, lineWidth: 2, active: true, duration: 3.2)
+                    .clipShape(Capsule())
+            }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
-        .borderBeam(
-            .md,
-            colorVariant: .colorful,
-            theme: .dark,
-            active: true,
-            borderRadius: 24
-        )
+        .padding(.bottom, 24)
+    }
+
+    private var contextBar: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "cpu")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Palette.brand)
+
+            Text("Contexto")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Palette.textPrimary)
+
+            ProgressView(value: 0.09)
+                .tint(Palette.brand)
+
+            Text("9%")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Palette.brand)
+
+            Image(systemName: "gearshape")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Palette.textTertiary)
+        }
+        .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .modifier(AssistantGlassModifier(cornerRadius: 20))
+    }
+
+    private var composerOrbState: OrbState {
+        if model.isBusy {
+            return model.isFMFallbackActive ? .composing : .working
+        }
+        if case .connecting = model.mcpPhase {
+            return .searching
+        }
+        return .breathing
+    }
+
+    private var sessionTitle: String {
+        guard let firstUser = model.lines.first(where: { $0.role == "user" }) else {
+            return "Nova conversa"
+        }
+
+        let title = firstUser.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.count > 36 ? "\(title.prefix(36))…" : title
+    }
+
+    private var sessionDetail: String {
+        guard let firstLine = model.lines.first else { return "Resolux" }
+        return "Assistente · \(firstLine.createdAt.formatted(date: .omitted, time: .shortened))"
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Button {
+                model.startNewConversation()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.bubble")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("Nova conversa")
+                        .font(.system(size: 14, weight: .bold))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(Palette.textPrimary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Palette.brand.opacity(0.15), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Palette.brand.opacity(0.35), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("HOJE")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Palette.textTertiary)
+
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(sessionTitle)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Palette.textPrimary)
+                        Text("Resolux")
+                            .font(.caption2)
+                            .foregroundStyle(Palette.textTertiary)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.textTertiary)
+                }
+                .padding(10)
+                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Palette.assistantBorder, lineWidth: 1))
+            }
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Capabilities", systemImage: "shippingbox")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.textPrimary)
+
+                HStack(spacing: 8) {
+                    assistantChip("Captura", systemImage: "camera.viewfinder", tint: Palette.info)
+                    assistantChip("Compartilhar", systemImage: "square.and.arrow.up", tint: Palette.info)
+                }
+            }
+            .padding(12)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Palette.assistantBorder, lineWidth: 1))
+        }
+        .padding(12)
+        .modifier(AssistantGlassModifier(cornerRadius: 20))
+    }
+
+    private var contextPanel: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center, spacing: 8) {
+                Image(systemName: "circle.grid.3x3")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Palette.brand)
+                Text("Contexto ativo")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Palette.textPrimary)
+                Spacer(minLength: 0)
+                Text("9% · 18 mil tokens")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Palette.textSecondary)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Janela de contexto")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Palette.textSecondary)
+                    Spacer(minLength: 0)
+                    Text("9% usado")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Palette.brand)
+                }
+
+                ProgressView(value: 0.09)
+                    .tint(Palette.brand)
+            }
+
+            Rectangle()
+                .fill(Palette.assistantBorder)
+                .frame(height: 1)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Fontes", systemImage: "square.grid.2x2")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.textPrimary)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    sourceRow("Câmera", symbol: "video.fill", active: true)
+                    sourceRow("Monitor", symbol: "display", active: true)
+                    sourceRow("Quick Play", symbol: "play.rectangle.on.rectangle", active: false)
+                    sourceRow("Starter", symbol: "wrench.and.screwdriver", active: false)
+                }
+            }
+
+            Rectangle()
+                .fill(Palette.assistantBorder)
+                .frame(height: 1)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Memória", systemImage: "brain")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.textPrimary)
+
+                memoryRow("Prefere respostas em português", symbol: "text.bubble")
+                memoryRow("Projeto ativo: Resolux macOS + iOS", symbol: "shippingbox")
+
+                Button {
+                    isMemoryReviewActive.toggle()
+                } label: {
+                    Label(
+                        isMemoryReviewActive ? "Fechar revisão" : "Revisar memória",
+                        systemImage: "eye")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Palette.brand)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 10)
+                        .background(
+                            Palette.brand.opacity(0.12),
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(Palette.brand.opacity(0.28), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+
+                if isMemoryReviewActive {
+                    Text("As notas são locais nesta sessão.")
+                        .font(.caption2)
+                        .foregroundStyle(Palette.textTertiary)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(AssistantGlassModifier(cornerRadius: 20))
+    }
+
+    private func suggestionChip(_ title: String, symbol: String) -> some View {
+        Button {
+            model.draft = title
+            isMessageFocused = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+                    .font(.caption.weight(.medium))
+            }
+            .foregroundStyle(Palette.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Palette.assistantBorder, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func assistantChip(
+        _ title: String,
+        systemImage: String,
+        tint: Color = Palette.textSecondary
+    ) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(tint)
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Palette.textPrimary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Palette.assistantBorder, lineWidth: 1))
+        .fixedSize()
+    }
+
+    private func sourceRow(
+        _ title: String,
+        symbol: String,
+        active: Bool
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(active ? Palette.textSecondary : Palette.textTertiary)
+
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Palette.textPrimary)
+
+            Spacer(minLength: 8)
+
+            Circle()
+                .fill(active ? Palette.success : Palette.textTertiary.opacity(0.5))
+                .frame(width: 6, height: 6)
+
+            Text(active ? "Ativa" : "Inativa")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(active ? Palette.success : Palette.textTertiary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Palette.assistantBorder, lineWidth: 1))
+    }
+
+    private func memoryRow(_ title: String, symbol: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "diamond.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Palette.brand)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(Palette.textSecondary)
+        }
+    }
+}
+
+private struct AssistantBubbleModifier: ViewModifier {
+    let role: String
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+
+        if role == "user" {
+            content
+                .background(Palette.brand.opacity(0.15), in: shape)
+                .overlay(shape.strokeBorder(Palette.brand.opacity(0.35), lineWidth: 1))
+        } else {
+            content.modifier(AssistantGlassModifier(cornerRadius: 18))
+        }
+    }
+}
+
+private struct AssistantGlassModifier: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+        if #available(macOS 26.0, iOS 26.0, *) {
+            content
+                .glassEffect(.regular, in: shape)
+                .overlay(shape.strokeBorder(Palette.assistantBorder, lineWidth: 1))
+                .shadow(color: .black.opacity(0.4), radius: 24, x: 0, y: 8)
+        } else {
+            content
+                .background(shape.fill(.ultraThinMaterial))
+                .clipShape(shape)
+                .overlay(shape.strokeBorder(Palette.assistantBorder, lineWidth: 1))
+                .shadow(color: .black.opacity(0.4), radius: 24, x: 0, y: 8)
+        }
+    }
+}
+
+private struct AssistantBackdrop: View {
+    var body: some View {
+        GeometryReader { proxy in
+            let radius = max(proxy.size.width, proxy.size.height)
+
+            ZStack {
+                Palette.assistantBackground
+
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Palette.brand.opacity(0.07), .clear],
+                            center: UnitPoint(x: 0.18, y: 0.12),
+                            startRadius: 0,
+                            endRadius: radius * 0.85))
+                    .frame(width: radius * 1.7, height: radius * 1.7)
+                    .blur(radius: 64)
+
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Palette.accentViolet.opacity(0.07), .clear],
+                            center: UnitPoint(x: 0.86, y: 0.22),
+                            startRadius: 0,
+                            endRadius: radius * 0.75))
+                    .frame(width: radius * 1.5, height: radius * 1.5)
+                    .blur(radius: 72)
+
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Palette.info.opacity(0.05), .clear],
+                            center: UnitPoint(x: 0.38, y: 0.92),
+                            startRadius: 0,
+                            endRadius: radius * 0.8))
+                    .frame(width: radius * 1.6, height: radius * 1.6)
+                    .blur(radius: 80)
+            }
+        }
+        .ignoresSafeArea()
     }
 }

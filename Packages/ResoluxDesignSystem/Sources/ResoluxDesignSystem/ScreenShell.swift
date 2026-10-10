@@ -45,25 +45,27 @@ public struct ScreenShell<Content: View>: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            ToneIcon(symbol: symbol, tone: tone)
+        GlassEffectGroup(spacing: 12) {
+            HStack(spacing: 12) {
+                ToneIcon(symbol: symbol, tone: tone)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(Palette.muted)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 18, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(Palette.muted)
+                }
+
+                Spacer(minLength: 8)
+
+                if let status {
+                    StatusPill(text: status, tone: statusTone)
+                }
             }
-
-            Spacer(minLength: 8)
-
-            if let status {
-                StatusPill(text: status, tone: statusTone)
-            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
     }
 }

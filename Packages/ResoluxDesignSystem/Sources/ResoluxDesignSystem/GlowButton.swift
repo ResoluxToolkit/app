@@ -34,25 +34,7 @@ public struct GlowButton: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
-            .background(
-                LinearGradient(
-                    colors: [Color.white.opacity(0.22), Color.white.opacity(0.08)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.4), Color.white.opacity(0.1)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 1
-                    )
-            )
+            .modifier(GlowButtonGlassModifier(spinning: spinning))
             .overlay {
                 if beam {
                     BeamStroke(cornerRadius: 24, lineWidth: 1.8, active: spinning, duration: 2.5)
@@ -62,5 +44,48 @@ public struct GlowButton: View {
             .shadow(color: Palette.deepViolet.opacity(spinning ? 0.6 : 0.25), radius: 16, y: 6)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct GlowButtonGlassModifier: ViewModifier {
+    let spinning: Bool
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, iOS 26.0, *) {
+            content
+                .glassEffect(.regular.interactive().tint(Palette.deepViolet.opacity(0.35)), in: Capsule())
+                .overlay(
+                    Capsule()
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.4), Color.white.opacity(0.1)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                )
+        } else {
+            content
+                .background(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.22), Color.white.opacity(0.08)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.4), Color.white.opacity(0.1)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                )
+        }
     }
 }
