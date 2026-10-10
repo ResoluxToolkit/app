@@ -38,6 +38,7 @@ struct ResoluxServerMain {
         estado: EstadoSessao,
         gateway: ArenaGateway,
         monitor: MonitorHub) async {
+        conexao.start(queue: .global(qos: .userInitiated))
         var emWebSocket = false
         var buffer = Data()
         var decodificador = WsDecodificador()
