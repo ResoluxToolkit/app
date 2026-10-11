@@ -5,6 +5,7 @@
 //  Created by Luiz Neto on 27/09/26.
 //
 
+import Resolume
 import SwiftUI
 
 @main
@@ -12,6 +13,7 @@ struct ResoluxMacApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .task { await MonitorWebService.shared.start() }
         }
         .defaultSize(width: 1100, height: 700)
         #if os(macOS)

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resolux — Monitor</title>
+<style>
+  :root { --bg:#0b0d12; --card:#141821; --line:#232a36; --fg:#e8ecf4; --dim:#8b95a7; --accent:#5eead4; --bad:#f87171; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:20px; background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system,"SF Pro Text",sans-serif; }
+  header { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+  h1 { font-size:17px; margin:0; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--bad); flex:none; }
+  .dot.ok { background:var(--accent); }
+  .muted { color:var(--dim); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; min-width:0; }
+  .card h2 { margin:0 0 10px; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); font-weight:600; }
+  .bar { height:8px; border-radius:4px; background:#1d232e; overflow:hidden; margin:6px 0 4px; }
+  .bar>span { display:block; height:100%; background:var(--accent); border-radius:4px; transition:width .4s; }
+  .row { display:flex; justify-content:space-between; gap:10px; padding:4px 0; border-top:1px solid var(--line); font-variant-numeric:tabular-nums; }
+  .row:first-of-type { border-top:0; }
+  .val { font-variant-numeric:tabular-nums; text-align:right; }
+  .bad { color:var(--bad); }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  td, th { text-align:left; padding:3px 8px 3px 0; white-space:nowrap; }
+  td.wrap { white-space:normal; }
+  th { color:var(--dim); font-weight:500; font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; }
+  tr+tr td { border-top:1px solid var(--line); }
+  .empty { color:var(--dim); font-style:italic; }
+  .k { color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>Resolux — Monitor do Sistema</h1>
+  <span class="muted" id="state">conectando…</span>
+  <span class="muted" id="stamp"></span>
+</header>
+<main class="grid" id="grid"></main>
+
+<script>
+const CARDS = ['cpu','ram','gpu','rede','portas','ndi','midi','artnet','captura','audio','displays'];
+const TITLES = {cpu:'CPU', ram:'Memória', gpu:'GPU', rede:'Rede', portas:'Portas & Protocolos', ndi:'NDI', midi:'MIDI', artnet:'Art-Net', captura:'Captura de Vídeo', audio:'Áudio', displays:'Displays'};
+const grid = document.getElementById('grid');
+for (const key of CARDS) {
+  grid.insertAdjacentHTML('beforeend',
+    `<section class="card" id="card-${key}"><h2>${TITLES[key]}</h2><div class="body"><span class="empty">aguardando dados…</span></div></section>`);
+}
+const setBody = (key, html) => { document.querySelector(`#card-${key} .body`).innerHTML = html; };
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const row = (k, v, cls='') => `<div class="row"><span class="k">${k}</span><span class="val ${cls}">${v}</span></div>`;
+const fmtBytes = b => { if (b == null) return '—'; const u=['B','KB','MB','GB','TB']; let i=0,n=b; while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(i?1:0)+' '+u[i]; };
+const rate = b => b == null ? '—' : fmtBytes(b)+'/s';
+const pct = x => x == null ? '—' : x.toFixed(1)+'%';
+const bar = (used, total) => total ? `<div class="bar"><span style="width:${Math.min(100, used/total*100).toFixed(1)}%"></span></div>` : '';
+const time = d => d ? new Date(d).toLocaleTimeString('pt-BR') : '—';
+const empty = () => '<span class="empty">sem dados</span>';
+
+function render(c) {
+  document.getElementById('stamp').textContent = `atualizado ${time(c.capturedAt)} · contrato v${c.contractVersion}`;
+
+  if (c.cpu) {
+    setBody('cpu',
+      row('uso', pct(c.cpu.usagePercent)) + bar(c.cpu.usagePercent, 100) +
+      row('usuário / sistema', `${pct(c.cpu.userPercent)} / ${pct(c.cpu.systemPercent)}`) +
+      row('ocioso', pct(c.cpu.idlePercent)) +
+      (c.hardware ? row('modelo', `${esc(c.hardware.cpuModel)} · ${c.hardware.coreCount} núcleos`) : ''));
+  } else setBody('cpu', empty());
+
+  if (c.memory) {
+    const m = c.memory;
+    setBody('ram',
+      row('uso', `${fmtBytes(m.usedBytes)} / ${fmtBytes(m.totalBytes)}`) + bar(m.usedBytes, m.totalBytes) +
+      row('wired', fmtBytes(m.wiredBytes)) +
+      row('compressor', fmtBytes(m.compressorBytes)) +
+      row('livre', fmtBytes(m.freeBytes)));
+  } else setBody('ram', empty());
+
+  if (c.gpu) {
+    setBody('gpu',
+      (c.gpu.name ? row('nome', esc(c.gpu.name)) : '') +
+      row('device', pct(c.gpu.devicePercent)) + bar(c.gpu.devicePercent ?? 0, 100) +
+      row('renderer', pct(c.gpu.rendererPercent)) +
+      row('tiler', pct(c.gpu.tilerPercent)) +
+      row('memória alocada', `${fmtBytes(c.gpu.usedBytes)} / ${fmtBytes(c.gpu.allocatedBytes)}`));
+  } else setBody('gpu', empty());
+
+  const t = c.networkTotals;
+  if (t) {
+    const byName = new Map((c.throughputs || []).map(x => [x.name, x]));
+    const ifs = (c.network?.interfaces || []).filter(i => !i.isLoopback)
+      .map(i => {
+        const r = byName.get(i.name);
+        return `<tr><td class="wrap">${esc(i.name)}${i.isUp ? '' : ' <span class="bad">(down)</span>'}</td>` +
+          `<td class="val">${i.addresses?.[0] ? esc(i.addresses[0]) : '—'}</td>` +
+          `<td class="val">↓ ${rate(r?.bytesInPerSecond)}</td><td class="val">↑ ${rate(r?.bytesOutPerSecond)}</td>` +
+          `<td class="val muted">${fmtBytes(i.bytesIn)} / ${fmtBytes(i.bytesOut)}</td>` +
+          `<td class="val${(i.errorsIn + i.dropsIn) ? ' bad' : ' muted'}">${i.errorsIn}e ${i.dropsIn}d</td></tr>`;
+      }).join('');
+    setBody('rede',
+      row('download', rate(t.bytesInPerSecond)) + row('upload', rate(t.bytesOutPerSecond)) +
+      row('pacotes ↓/↑', `${Math.round(t.packetsInPerSecond)} / ${Math.round(t.packetsOutPerSecond)}`) +
+      `<table><tr><th>if</th><th>endereço</th><th>taxa ↓</th><th>taxa ↑</th><th>acum.</th><th>err/drop</th></tr>${ifs || `<tr><td colspan="6" class="empty">sem interfaces</td></tr>`}</table>`);
+  } else setBody('rede', empty());
+
+  if (c.ports?.length) {
+    const rows = c.ports.map(p => `<tr><td class="wrap">${esc(p.processName)}</td><td class="val">${p.localPort}</td><td>${p.transport}</td><td class="wrap">${esc(p.service)}</td></tr>`).join('');
+    setBody('portas', `<table><tr><th>processo</th><th>porta</th><th>proto</th><th>serviço</th></tr>${rows}</table>`);
+  } else setBody('portas', empty());
+
+  if (c.ndi) {
+    const sources = (c.ndi.sources || []).map(s => row(esc(s.name), esc(s.address))).join('');
+    setBody('ndi',
+      row('runtime', c.ndi.isAvailable ? `disponível${c.ndi.version ? ' · ' + esc(c.ndi.version) : ''}` : '<span class="bad">indisponível</span>', c.ndi.isAvailable ? '' : 'bad') +
+      (c.ndi.libraryPath ? row('lib', `<span class="k">${esc(c.ndi.libraryPath)}</span>`) : '') +
+      (sources || '<span class="empty">nenhuma fonte descoberta</span>'));
+  } else setBody('ndi', empty());
+
+  if (c.midi) {
+    const sources = (c.midi.sources || []).map(s =>
+      row(esc(s.name) + (s.manufacturer ? ` <span class="k">(${esc(s.manufacturer)})</span>` : ''),
+          `${s.packetCount} pacotes · última ${time(s.lastMessageAt)}`)).join('');
+    setBody('midi',
+      row('CoreMIDI', c.midi.isAvailable ? 'disponível' : `<span class="bad">erro${c.midi.error ? ': ' + esc(c.midi.error) : ''}</span>`, c.midi.isAvailable ? '' : 'bad') +
+      (sources || '<span class="empty">nenhuma fonte ativa</span>'));
+  } else setBody('midi', empty());
+
+  if (c.artNet) {
+    const nodes = (c.artNet.nodes || []).map(n => row(esc(n.shortName), `${esc(n.ipAddress)}`)).join('');
+    setBody('artnet',
+      row('respostas ao poll', String(c.artNet.replyCount)) +
+      (c.artNet.error ? row('erro', `<span class="bad">${esc(c.artNet.error)}</span>`, 'bad') : '') +
+      (nodes || '<span class="empty">nenhum nó respondeu</span>'));
+  } else setBody('artnet', empty());
+
+  setBody('captura', c.captureDevices?.length
+    ? c.captureDevices.map(d => row(esc(d.name) + ` <span class="k">${esc(d.deviceType)}</span>`,
+        d.isConnected ? 'conectado' : '<span class="bad">desconectado</span>', d.isConnected ? '' : 'bad')).join('')
+    : empty());
+
+  setBody('audio', c.audioDevices?.length
+    ? c.audioDevices.map(d => row(esc(d.name),
+        `${d.inputStreams}in/${d.outputStreams}out${d.isDefaultInput ? ' · entrada padrão' : ''}${d.isDefaultOutput ? ' · saída padrão' : ''}`)).join('')
+    : empty());
+
+  setBody('displays', c.displays?.length
+    ? c.displays.map(d => row(`${d.pointWidth}×${d.pointHeight} pts${d.isMain ? ' (principal)' : ''}`,
+        `${d.pixelWidth}×${d.pixelHeight} px · ${d.refreshRate.toFixed(0)} Hz`)).join('')
+    : empty());
+}
+
+const dot = document.getElementById('dot');
+const state = document.getElementById('state');
+const es = new EventSource('/monitor');
+es.onopen = () => { dot.classList.add('ok'); state.textContent = 'conectado'; };
+es.onerror = () => { dot.classList.remove('ok'); state.textContent = 'reconectando…'; };
+es.onmessage = e => { dot.classList.add('ok'); state.textContent = 'conectado'; render(JSON.parse(e.data)); };
+</script>
+</body>
+</html>

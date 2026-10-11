@@ -27,6 +27,8 @@ struct ContentView: View {
             ArenaMonitorView()
                 .tag(2)
                 .tabItem { Label("Monitor", systemImage: "display") }
+            SystemMonitorView()
+                .tabItem { Label("Sistema", systemImage: "cpu") }
             if #available(macOS 26.0, *) {
                 AssistantView()
                     .tag(3)

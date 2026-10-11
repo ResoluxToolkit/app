@@ -20,7 +20,10 @@ let package = Package(
         ),
     ],
     targets: [
-        .target(name: "Resolume", dependencies: [.product(name: "ResoluxCore", package: "ResoluxCore")]),
+        .target(
+            name: "Resolume",
+            dependencies: [.product(name: "ResoluxCore", package: "ResoluxCore")],
+            resources: [.process("Resources")]),
         .target(name: "ResolumeUI", dependencies: [
             "Resolume",
             .product(name: "ResoluxDesignSystem", package: "ResoluxDesignSystem"),

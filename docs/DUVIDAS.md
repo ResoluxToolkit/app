@@ -599,6 +599,28 @@ parâmetro com default) — e aí a chave dele ganha dentes: em `Timeline` a ré
 `Performance` ela **recusa calcular** e mede. Fila crescendo: régua visual (sensação espaço/tempo,
 §13), rename em lote com `#` (§13.9), e agora "apagão previsto vs esquecido".
 
+## Voto resolvido (2026-10-10): ResoluxMac × frontend web
+Operador decidiu: **ResoluxMac fica por enquanto** (superfície de dev/diagnóstico), mas o
+**usuário final acessa tudo pelo frontend web**, um lugar só. Sem ambiguidade de superfície.
+Consequências acordadas: monitoramento entra no protocolo único do motor; **API de
+monitoramento é lazy** — o motor só liga o loop de coleta quando a página de monitoramento
+abre e desliga quando fecha (nada de coleta 24/7 queimando CPU no Mac do Arena durante show).
+UI do ResoluxMac (tacada 63, cards Rede/NDI) serve só de referência visual enquanto o frontend
+web não existe.
+
+## Fila de monitoramento (voto 2026-10-10)
+- **Watchdog**: sim, roda sem página aberta (queda de fonte NDI, interface caindo), mas
+  **não agora** — tacada futura própria. Enquanto isso, coleta só com cliente assinado.
+- **OSC**: precisa de monitor (aquisição). OSC não tem descoberta tipo ArtPoll; rota provável:
+  inventário passivo via sockets (quem escuta UDP/TCP OSC) + contagem de datagrams só com tap
+  (mesmo veto REUSEPORT/BPF do Art-Net). Tacada futura, depois da 64.
+- **Monitor → daemon** (decisão 2026-10-10): o bootstrap do monitor (`:8091`) fica no ResoluxMac
+  como host provisório (tacada 66 aprovada). Destino final é o daemon (`ResoluxServer`, `:1980`):
+  quando migrar, o feed SSE passa a ser `/monitor` da mesma origem do daemon e o cliente web não
+  muda (consome caminho relativo; em dev o proxy do Vite só troca o alvo). O `ResoluxServer`
+  respondendo hoje em `:1980` (medido: `{"protocol":"resolux-api/1"}`) roda de binário antigo —
+  fonte da API v1 não está no monorepo atual (só no backup "engine - cópia").
+
 ## 15. Qual licença de topo o ResoluxToolkit adota?
 Com a política NDI escrita em `docs/NDI-POLICY.md`, o repo precisa de licença permissiva antes
 de qualquer distribuição: MIT, Apache-2.0 ou BSD-3-Clause. Não escolhi por você porque isso muda
