@@ -42,12 +42,14 @@ public actor MonitorHub {
     private let audioSource: any AudioDeviceSource
     private let displaySource: any DisplayMonitorSource
     private let pollInterval: TimeInterval
+    private let processPollInterval: TimeInterval
 
     private var clientRefs = 0
     private var pollTask: Task<Void, Never>?
     private var latest: MonitorContract?
     private var previousNetwork: NetworkSample?
     private var cycle = 0
+    private var lastProcessPoll: Date?
 
     public init(
         systemSource: any SystemMonitorSource = MachSystemMonitorSource(),
@@ -58,7 +60,8 @@ public actor MonitorHub {
         captureSource: any CaptureDeviceSource = AVCaptureDeviceProbe(),
         audioSource: any AudioDeviceSource = CoreAudioDeviceSource(),
         displaySource: any DisplayMonitorSource = CoreGraphicsDisplaySource(),
-        pollInterval: TimeInterval = 1.0
+        pollInterval: TimeInterval = 1.0,
+        processPollInterval: TimeInterval = 10.0
     ) {
         self.systemSource = systemSource
         self.networkSource = networkSource
@@ -69,6 +72,7 @@ public actor MonitorHub {
         self.audioSource = audioSource
         self.displaySource = displaySource
         self.pollInterval = pollInterval
+        self.processPollInterval = processPollInterval
     }
 
     public var isRunning: Bool { pollTask != nil }
@@ -92,6 +96,7 @@ public actor MonitorHub {
             latest = nil
             previousNetwork = nil
             cycle = 0
+            lastProcessPoll = nil
         }
     }
 
@@ -115,7 +120,11 @@ public actor MonitorHub {
         contract.cpu = try? await systemSource.cpuLoad() ?? contract.cpu
         contract.memory = try? await systemSource.memoryUsage()
         contract.gpu = try? await systemSource.gpuMetrics() ?? contract.gpu
-        contract.ports = (try? await systemSource.ports()) ?? contract.ports
+        if lastProcessPoll == nil || Date().timeIntervalSince(lastProcessPoll!) >= processPollInterval {
+            contract.ports = (try? await systemSource.ports()) ?? contract.ports
+            contract.processes = (try? await systemSource.processes()) ?? contract.processes
+            lastProcessPoll = Date()
+        }
 
         if let sample = try? await networkSource.sample() {
             if let previous = previousNetwork {

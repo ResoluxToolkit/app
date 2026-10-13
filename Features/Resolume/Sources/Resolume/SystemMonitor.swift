@@ -101,6 +101,47 @@ public struct SystemPortEndpoint: Identifiable, Sendable, Equatable, Codable {
     }
 }
 
+public struct SystemProcessInfo: Identifiable, Sendable, Equatable, Codable {
+    public let userID: UInt32
+    public let pid: Int
+    public let parentID: Int
+    public let cpuPercent: Double
+    public let memoryPercent: Double
+    public let memoryBytes: UInt64
+    public let processName: String
+    public let command: String
+
+    public var id: Int { pid }
+
+    public var isArena: Bool {
+        Self.isArenaProcess(command)
+    }
+
+    public init(
+        userID: UInt32,
+        pid: Int,
+        parentID: Int,
+        cpuPercent: Double,
+        memoryPercent: Double,
+        memoryBytes: UInt64,
+        processName: String,
+        command: String
+    ) {
+        self.userID = userID
+        self.pid = pid
+        self.parentID = parentID
+        self.cpuPercent = cpuPercent
+        self.memoryPercent = memoryPercent
+        self.memoryBytes = memoryBytes
+        self.processName = processName
+        self.command = command
+    }
+
+    public static func isArenaProcess(_ command: String) -> Bool {
+        command.lowercased().contains("arena") || command.lowercased().contains("resolume")
+    }
+}
+
 public struct CPUTicks: Sendable, Equatable {
     public let user: Int
     public let system: Int
@@ -124,6 +165,7 @@ public protocol SystemMonitorSource: Sendable {
     func memoryUsage() async throws -> MemoryUsage
     func gpuMetrics() async throws -> GPUMetrics?
     func ports() async throws -> [SystemPortEndpoint]
+    func processes() async throws -> [SystemProcessInfo]
 }
 
 public enum SystemMonitorMath {
@@ -167,6 +209,55 @@ public enum SystemMonitorMath {
                 processID: processID,
                 service: serviceLabel(port: parsed.port, processName: processName))
         }
+    }
+
+    public static func processes(
+        fromPS output: String,
+        currentUID: UInt32 = getuid(),
+        currentPID: Int32 = ProcessInfo.processInfo.processIdentifier
+    ) -> [SystemProcessInfo] {
+        let processos = output.split(separator: "\n").dropFirst().compactMap { line -> SystemProcessInfo? in
+            let fields = line.split(separator: " ", maxSplits: 7, omittingEmptySubsequences: true)
+            guard fields.count >= 7,
+                  let userID = UInt32(fields[0]),
+                  let pid = Int(fields[1]),
+                  let parentID = Int(fields[2]),
+                  let cpuPercent = Double(fields[3]),
+                  let memoryPercent = Double(fields[4]),
+                  let rssKilobytes = UInt64(fields[5]) else {
+                return nil
+            }
+
+            let command = fields.count == 8 ? String(fields[7]) : String(fields[6])
+            return SystemProcessInfo(
+                userID: userID,
+                pid: pid,
+                parentID: parentID,
+                cpuPercent: max(0, cpuPercent),
+                memoryPercent: max(0, memoryPercent),
+                memoryBytes: rssKilobytes * 1024,
+                processName: String(fields[6]),
+                command: command)
+        }
+
+        return processos
+            .filter { processo in
+                processo.userID == currentUID
+                    && processo.pid != Int(currentPID)
+                    && !processo.isArena
+                    && (processo.cpuPercent > 0 || processo.memoryPercent > 0)
+            }
+            .sorted { a, b in
+                if a.cpuPercent != b.cpuPercent {
+                    return a.cpuPercent > b.cpuPercent
+                }
+                if a.memoryBytes != b.memoryBytes {
+                    return a.memoryBytes > b.memoryBytes
+                }
+                return a.processName < b.processName
+            }
+            .prefix(10)
+            .map { $0 }
     }
 
     public static func serviceLabel(port: Int, processName: String) -> String {
@@ -278,6 +369,13 @@ public actor MachSystemMonitorSource: SystemMonitorSource {
         return (SystemMonitorMath.ports(fromLSOF: tcp, transport: "TCP")
             + SystemMonitorMath.ports(fromLSOF: udp, transport: "UDP"))
             .sorted { $0.localPort < $1.localPort }
+    }
+
+    public func processes() async throws -> [SystemProcessInfo] {
+        let output = try Self.runCommand(
+            "/bin/ps",
+            ["-axo", "uid,pid,ppid,pcpu,pmem,rss,comm,args"])
+        return SystemMonitorMath.processes(fromPS: output)
     }
 
     private static func processorTicks() throws -> CPUTicks {

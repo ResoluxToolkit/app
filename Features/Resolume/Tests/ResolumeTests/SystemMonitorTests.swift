@@ -45,6 +45,24 @@ func gpuParsing() throws {
     #expect(gpu.usedBytes == 414744576)
 }
 
+@Test("PS expõe só processos do usuário, fora do Arena e com uso medido")
+func processesParsing() {
+    let output = """
+      UID   PID  PPID  %CPU %MEM    RSS COMM             ARGS
+      501  100     1   3.2  1.2  8192 /Applications/O /Applications/Obsidian.app/Contents/MacOS/Obsidian
+      501  200     1   0.0  0.8 40960 /Applications/Re /Applications/Resolume Arena/Arena.app/Contents/MacOS/Arena
+        0  300     1   9.0  2.0 65536 /usr/libexec/C /usr/libexec/CryptoTokenKit
+      501  400     1   0.0  0.0     0 /usr/bin/true /usr/bin/true
+      501  500     1  20.0  2.4 98304 /bin/ps /bin/ps -axo uid,pid,ppid,pcpu,pmem,rss,comm,args
+    """
+
+    let processos = SystemMonitorMath.processes(fromPS: output, currentUID: 501, currentPID: 500)
+    #expect(processos.map(\.pid) == [100])
+    #expect(processos.first?.userID == 501)
+    #expect(processos.first?.cpuPercent == 3.2)
+    #expect(processos.first?.memoryBytes == 8_388_608)
+}
+
 @MainActor
 @Test("Modelo de sistema calcula throughput de rede entre polls e sonda NDI")
 func systemMonitorModelNetwork() async throws {
@@ -104,6 +122,8 @@ private struct StubSystemSource: SystemMonitorSource {
     func cpuLoad() async throws -> CPULoad? { nil }
     func gpuMetrics() async throws -> GPUMetrics? { nil }
     func ports() async throws -> [SystemPortEndpoint] { [] }
+
+    func processes() async throws -> [SystemProcessInfo] { [] }
 
     func memoryUsage() async throws -> MemoryUsage {
         MemoryUsage(totalBytes: 1, usedBytes: 0, activeBytes: 0, wiredBytes: 0, compressorBytes: 0, freeBytes: 1)

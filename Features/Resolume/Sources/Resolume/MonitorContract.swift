@@ -10,6 +10,7 @@ public struct MonitorContract: Sendable, Equatable, Codable {
     public var memory: MemoryUsage?
     public var gpu: GPUMetrics?
     public var ports: [SystemPortEndpoint]
+    public var processes: [SystemProcessInfo]
     public var network: NetworkSample?
     public var throughputs: [NetworkThroughput]
     public var networkTotals: NetworkTotals?
@@ -28,6 +29,7 @@ public struct MonitorContract: Sendable, Equatable, Codable {
         memory: MemoryUsage? = nil,
         gpu: GPUMetrics? = nil,
         ports: [SystemPortEndpoint] = [],
+        processes: [SystemProcessInfo] = [],
         network: NetworkSample? = nil,
         throughputs: [NetworkThroughput] = [],
         networkTotals: NetworkTotals? = nil,
@@ -45,6 +47,7 @@ public struct MonitorContract: Sendable, Equatable, Codable {
         self.memory = memory
         self.gpu = gpu
         self.ports = ports
+        self.processes = processes
         self.network = network
         self.throughputs = throughputs
         self.networkTotals = networkTotals

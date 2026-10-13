@@ -132,6 +132,8 @@ private struct StubServerSystemSource: SystemMonitorSource {
     func gpuMetrics() async throws -> GPUMetrics? { nil }
     func ports() async throws -> [SystemPortEndpoint] { [] }
 
+    func processes() async throws -> [SystemProcessInfo] { [] }
+
     func memoryUsage() async throws -> MemoryUsage {
         MemoryUsage(totalBytes: 1, usedBytes: 0, activeBytes: 0, wiredBytes: 0, compressorBytes: 0, freeBytes: 1)
     }

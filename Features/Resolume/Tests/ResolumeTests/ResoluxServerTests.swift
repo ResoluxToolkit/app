@@ -131,13 +131,13 @@ private actor ProvedorContador {
 }
 
 private actor EventoColetor {
-    private var eventos: [MonitorHub.Evento] = []
+    private var eventos: [ResoluxServer.MonitorHub.Evento] = []
 
-    func registrar(_ evento: MonitorHub.Evento) {
+    func registrar(_ evento: ResoluxServer.MonitorHub.Evento) {
         eventos.append(evento)
     }
 
-    func snapshot() -> [MonitorHub.Evento] {
+    func snapshot() -> [ResoluxServer.MonitorHub.Evento] {
         eventos
     }
 }

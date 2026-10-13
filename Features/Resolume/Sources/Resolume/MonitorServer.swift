@@ -109,6 +109,20 @@ public actor MonitorHTTPServer {
                 return
             }
 
+            if Self.isTerminatePath(path) && Self.isPostRequest(request) {
+                let snapshot = await hub.snapshot()
+                let pid = Self.processID(from: path)
+                if let pid,
+                   snapshot?.processes.contains(where: { $0.pid == pid }) == true,
+                   Darwin.kill(pid_t(pid), SIGTERM) == 0 {
+                    try? await Self.send(connection: connection, data: Self.respostaProcesso(ok: true))
+                } else {
+                    try? await Self.send(connection: connection, data: Self.respostaProcesso(ok: false))
+                }
+                await drop(id: id)
+                return
+            }
+
             if Self.isIndexPath(path) {
                 if let html = Self.indexHTML() {
                     try? await Self.send(connection: connection, data: Self.indexHeaders + html)
@@ -199,8 +213,34 @@ public actor MonitorHTTPServer {
         return String(parts[1]).split(separator: "?").first.map(String.init)
     }
 
+    private static func isPostRequest(_ request: Data) -> Bool {
+        guard let end = request.range(of: Data("\r\n".utf8)) else { return false }
+        guard let line = String(data: request[..<end.lowerBound], encoding: .utf8) else { return false }
+        return line.hasPrefix("POST ")
+    }
+
+    private static func respostaProcesso(ok: Bool) -> Data {
+        let corpo = Data("{\"ok\":\(ok)}".utf8)
+        return Data("HTTP/1.1 \(ok ? "200 OK" : "404 Not Found")\r\nContent-Type: application/json\r\nContent-Length: \(corpo.count)\r\nConnection: close\r\n\r\n".utf8) + corpo
+    }
+
     private static func isMonitorPath(_ path: String) -> Bool {
         path == "/monitor"
+    }
+
+    private static func isTerminatePath(_ path: String) -> Bool {
+        path.hasPrefix("/monitor/processes/") && path.hasSuffix("/terminate")
+    }
+
+    private static func processID(from path: String) -> Int? {
+        let partes = path.split(separator: "/")
+        guard partes.count == 4,
+              partes[0] == "monitor",
+              partes[1] == "processes",
+              partes[3] == "terminate",
+              !partes[2].isEmpty,
+              partes[2].allSatisfy(\.isNumber) else { return nil }
+        return Int(partes[2])
     }
 
     private static func isIndexPath(_ path: String) -> Bool {

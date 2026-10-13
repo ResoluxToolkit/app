@@ -176,6 +176,28 @@ func throughputSecondPoll() async throws {
     await hub.detach()
 }
 
+@Test("Processos só são relidos após o intervalo dedicado")
+func processPollThrottle() async throws {
+    let source = ContagemPortasSource()
+    let hub = MonitorHub(
+        systemSource: source,
+        networkSource: ScriptedNetworkSource(samples: []),
+        ndiSource: FixedNDISource(),
+        midiSource: FixedMIDISource(),
+        artNetSource: FixedArtNetSource(),
+        captureSource: FixedCaptureSource(),
+        audioSource: FixedAudioSource(),
+        displaySource: FixedDisplaySource(),
+        pollInterval: 0.02,
+        processPollInterval: 0.08)
+
+    _ = await hub.attach()
+    try await Task.sleep(nanoseconds: 100_000_000)
+    let chamadas = await source.chamadas
+    #expect(chamadas >= 2 && chamadas <= 3)
+    await hub.detach()
+}
+
 private func monitorCounters(
     name: String,
     isLoopback: Bool,
@@ -209,9 +231,32 @@ private struct StubSystemSource: SystemMonitorSource {
     func gpuMetrics() async throws -> GPUMetrics? { nil }
     func ports() async throws -> [SystemPortEndpoint] { [] }
 
+    func processes() async throws -> [SystemProcessInfo] { [] }
+
     func memoryUsage() async throws -> MemoryUsage {
         MemoryUsage(totalBytes: 1, usedBytes: 0, activeBytes: 0, wiredBytes: 0, compressorBytes: 0, freeBytes: 1)
     }
+}
+
+private actor ContagemPortasSource: SystemMonitorSource {
+    private(set) var chamadas = 0
+
+    func hardware() async throws -> SystemHardware {
+        SystemHardware(cpuModel: "stub", coreCount: 1, physicalMemoryBytes: 1)
+    }
+
+    func cpuLoad() async throws -> CPULoad? { nil }
+    func memoryUsage() async throws -> MemoryUsage {
+        MemoryUsage(totalBytes: 1, usedBytes: 0, activeBytes: 0, wiredBytes: 0, compressorBytes: 0, freeBytes: 1)
+    }
+    func gpuMetrics() async throws -> GPUMetrics? { nil }
+
+    func ports() async throws -> [SystemPortEndpoint] {
+        chamadas += 1
+        return []
+    }
+
+    func processes() async throws -> [SystemProcessInfo] { [] }
 }
 
 private actor ScriptedNetworkSource: NetworkMonitorSource {
