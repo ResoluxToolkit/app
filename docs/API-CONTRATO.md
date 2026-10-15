@@ -5,15 +5,22 @@ Este arquivo é a fronteira única entre a engine Swift e o cliente web. A engin
 
 ## Base
 
-- Daemon: `ResoluxServer`, escutando apenas em `127.0.0.1:1980`.
+- Daemon: `ResoluxServer`, escutando em `127.0.0.1:1980` por default;
+  `RESOLUX_BIND=0.0.0.0` abre todas as interfaces (LAN, Tailscale) — é o
+  modo do `scripts/release.sh`.
 - Cliente web conversa com o daemon; não fala MCP, Ollama, Apple FM nem REST do
   Arena diretamente. Protocolos externos ficam no adaptador do daemon.
 - HTTP: `http://127.0.0.1:1980/api/v1`.
 - WebSocket: `ws://127.0.0.1:1980/api/v1/ws`.
+- Em release, o daemon também serve o bundle estático do frontend
+  (`/`, `/assets/**`, `/icons/**` e `manifest.webmanifest`) quando
+  `RESOLUX_FRONT_DIST` aponta para o `dist/` — sem a variável o daemon é só
+  API. Em debug, o Vite fica na origem `:3003` e repassa `/api/v1` e
+  `/monitor` para o daemon; a 1980 não serve front.
 - JSON `utf-8`; campo `Content-Type: application/json`.
 - Erro HTTP sempre em envelope: `{"error":{"code":"...","message":"..."}}`.
-- Sem CORS. O binding segue fixo em `127.0.0.1:1980` — quem vem de fora fala
-  com o proxy do cliente web. Origem aceita no handshake WS: loopback
+- Sem CORS. O binding default segue no loopback; em release o daemon atende
+  direto na LAN/Tailscale pela mesma 1980. Origem aceita no handshake WS: loopback
   (`localhost`, `127.0.0.1`, `::1`), faixas privadas (10/8, 172.16/12,
   192.168/16 e o CGNAT 100.64/10 do Tailscale) e nomes de máquina sem ponto ou
   terminados em `.local` (mDNS, ex.: `mac`, `mac.local`). Host de site externo
@@ -33,6 +40,8 @@ Este arquivo é a fronteira única entre a engine Swift e o cliente web. A engin
 | `DELETE /api/v1/conversa` | limpa a conversa do disco | `{"turnos":[]}` |
 | `GET /api/v1/arena/**` | proxy read-only do REST do Arena | JSON do Arena |
 | `HEAD /api/v1/arena/**` | proxy read-only | headers do Arena |
+| `GET /monitor` | SSE do monitor do sistema | evento `data: {contrato v1}` |
+| `POST /monitor/processes/{pid}/terminate` | encerra processo listado pelo monitor | `{"ok":true}` ou `{"ok":false}` |
 
 ### Proxy do Arena
 
@@ -162,6 +171,18 @@ Na falha (e só na transição ok → falha), o daemon avisa e continua tentando
   cliente fecha o socket, o daemon cancela o poll — nada de escrita, nada de
   preferência do Arena.
 - As thumbnails continuam por proxy HTTP (`image/*`) nesta tacada.
+
+### Monitor do sistema
+
+- `GET /monitor` fica no próprio daemon e serve SSE com o contrato v1 do
+  sistema (CPU, memória, GPU, rede, portas, NDI, MIDI, Art-Net, captura,
+  áudio, displays e processos).
+- A coleta é lazy: cada conexão faz `attach`; fechar a conexão faz `detach`
+  e o loop de coleta para quando não sobra cliente.
+- `POST /monitor/processes/{pid}/terminate` só aceita um `pid` presente no
+  snapshot atual do monitor. Não é escrita no Arena.
+- O cliente usa o caminho relativo na mesma origem; em dev, o Vite passa
+  `/monitor` para o daemon `127.0.0.1:1980`.
 
 ## Regras da engine
 

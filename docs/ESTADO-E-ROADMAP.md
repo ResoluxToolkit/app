@@ -58,3 +58,4 @@ Marcas: **(medido)** = verificado nesta máquina hoje; **(docs)** = documentado 
 12. **iOS**: app é scaffold (só Haptics); Resolume é macOS-only — definir o papel do iOS.
 13. **NDI (`libndi` 6.1.1 vs 6.3.2)**: só monitoramento, sem link, até haver pixel pra mover.
 14. **DXV / Advanced Output**: conversão e presets — só leitura até nova regra (DÚVIDAS §2, §9, §8).
+15. **`wss://` no daemon (TLS)**: WebSocket não funciona em `wss://` — apontado pelo operador na revisão da tacada 71; só quando o acesso externo pedir HTTPS.

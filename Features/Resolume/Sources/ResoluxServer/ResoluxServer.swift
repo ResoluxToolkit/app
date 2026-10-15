@@ -3,9 +3,10 @@ import Network
 import Resolume
 
 /// Daemon da Resolux API v1. É o único processo do cliente web: escuta em
-/// `127.0.0.1:1980`, fala HTTP+WS com o front e mantém para si o contato
-/// read-only com o REST do Arena. Sem MCP, sem modelo, sem escrita nesta
-/// build — honestidade de estado na cara da API.
+/// `127.0.0.1:1980` por default (`RESOLUX_BIND=0.0.0.0` abre todas as
+/// interfaces, ex. Tailscale), fala HTTP+WS com o front e mantém para si o
+/// contato read-only com o REST do Arena. Sem MCP, sem modelo, sem escrita
+/// nesta build — honestidade de estado na cara da API.
     @main
     struct ResoluxServerMain {
         static func main() async {
@@ -14,6 +15,9 @@ import Resolume
             let estado = EstadoSessao(sessao: restaurada ?? SessaoV1())
             let gateway = ArenaGateway()
             let monitor = MonitorHub(provedor: { try await gateway.composition() })
+            let sistemaMonitor = Resolume.MonitorHub()
+            let sistemaHTTP = Resolume.MonitorHTTPServer(hub: sistemaMonitor)
+            let front = FrontendEstatico.localizar()
             let conversa = ConversaHub()
             await persistencia.definirPublicador { corpo in
                 await conversa.publicar(corpo)
@@ -21,10 +25,18 @@ import Resolume
             let motor = MotorChat()
 
         let parametros = NWParameters.tcp
+        let host = hostEscuta() ?? .any
         parametros.requiredLocalEndpoint = NWEndpoint.hostPort(
-            host: .ipv4(.loopback),
+            host: .ipv4(host),
             port: 1980)
         let listener = try! NWListener(using: parametros)
+        listener.stateUpdateHandler = { estado in
+            if case .failed(let erro) = estado {
+                FileHandle.standardError.write(
+                    Data("[ResoluxServer] falha ao escutar na 1980: \(erro)\n".utf8))
+                exit(1)
+            }
+        }
         listener.newConnectionHandler = { conexao in
             Task {
                 await atender(
@@ -32,13 +44,24 @@ import Resolume
                     estado: estado,
                     gateway: gateway,
                     monitor: monitor,
+                    sistema: sistemaHTTP,
                     conversa: conversa,
                     motor: motor,
+                    front: front,
                     persistencia: persistencia)
             }
         }
         listener.start(queue: .global(qos: .userInitiated))
         await manterAcordado()
+    }
+
+    /// Host de escuta. Default `127.0.0.1`; `RESOLUX_BIND=0.0.0.0` devolve
+    /// `nil` e o listener abre todas as interfaces (LAN, Tailscale).
+    static func hostEscuta(
+        ambiente: [String: String] = ProcessInfo.processInfo.environment) -> IPv4Address? {
+        let bruto = ambiente["RESOLUX_BIND"] ?? ""
+        if bruto == "0.0.0.0" || bruto == "*" { return nil }
+        return IPv4Address(bruto.isEmpty ? "127.0.0.1" : bruto) ?? .loopback
     }
 
     // MARK: - Ciclo de conexão
@@ -48,8 +71,10 @@ import Resolume
         estado: EstadoSessao,
         gateway: ArenaGateway,
         monitor: MonitorHub,
+        sistema: Resolume.MonitorHTTPServer,
         conversa: ConversaHub,
         motor: MotorChat,
+        front: FrontendEstatico?,
         persistencia: PersistenciaDisco) async {
         conexao.start(queue: .global(qos: .userInitiated))
         var emWebSocket = false
@@ -91,6 +116,10 @@ import Resolume
 
             if !emWebSocket {
                 guard let pedido = PedidoHttp.parse(buffer) else { continue }
+                if pedido.rota == "/monitor" || pedido.rota.hasPrefix("/monitor/processes/") {
+                    await sistema.atender(conexao, pedido: buffer, iniciar: false)
+                    return
+                }
                 if pedido.rota == "/api/v1/ws" {
                     guard let chave = pedido.cabecalhos["sec-websocket-key"],
                           origemAceita(pedido.cabecalhos["origin"]) else {
@@ -126,6 +155,7 @@ import Resolume
                     estado: estado,
                     gateway: gateway,
                     motor: motor,
+                    front: front,
                     persistencia: persistencia)
                 await enviar(
                     conexao,
@@ -443,6 +473,7 @@ import Resolume
         estado: EstadoSessao,
         gateway: ArenaGateway,
         motor: MotorChat,
+        front: FrontendEstatico?,
         persistencia: PersistenciaDisco) async -> RespostaHttp {
         switch pedido.rota {
         case "/api/v1/health":
@@ -469,6 +500,9 @@ import Resolume
         default:
             if pedido.rota.hasPrefix("/api/v1/arena") {
                 return await responderArena(pedido, gateway: gateway)
+            }
+            if let front, !pedido.rota.hasPrefix("/api/") {
+                return front.resposta(pedido)
             }
             return RespostaHttp.erro(
                 codigo: "not_found",

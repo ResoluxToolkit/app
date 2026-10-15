@@ -31,6 +31,22 @@ swift test --package-path Features/Resolume
 swift test --package-path Packages/ResoluxCore
 ```
 
+### Debug do daemon + frontend web
+
+```bash
+./scripts/debug.sh
+```
+
+Isso sobe `ResoluxServer` em `127.0.0.1:1980` servindo só a API (sem front estático) e o Vite em `http://localhost:3003`. O Vite repassa `/api/v1` e `/monitor` para o daemon.
+
+### Release servido pelo daemon
+
+```bash
+./scripts/release.sh
+```
+
+Isso constrói o frontend em `../frontend/dist`, constrói o `ResoluxServer` em release e sobe o daemon servindo o bundle na mesma origem, em todas as interfaces (`RESOLUX_BIND=0.0.0.0`) — dá pra acessar pela LAN/Tailscale na 1980. O front estático só sobe com `RESOLUX_FRONT_DIST` definido; sem ele o daemon é só API.
+
 O suíte de Resolume tem um teste que depende do Arena aberto com a REST API habilitada; o restante roda offline.
 
 ## Princípios de domínio

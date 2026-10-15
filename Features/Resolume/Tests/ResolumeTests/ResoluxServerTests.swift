@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Testing
 import Resolume
 @testable import ResoluxServer
@@ -28,6 +29,27 @@ struct ResoluxServerTests {
         #expect(!ResoluxServerMain.origemAceita("http://172.32.0.1:3003"))
         #expect(!ResoluxServerMain.origemAceita("http://100.200.0.1:3003"))
         #expect(!ResoluxServerMain.origemAceita("sem-host"))
+    }
+
+    @Test("binding do daemon: default loopback, 0.0.0.0 abre a rede")
+    func bindingDaemon() {
+        #expect(ResoluxServerMain.hostEscuta(ambiente: [:]) == IPv4Address("127.0.0.1"))
+        #expect(ResoluxServerMain.hostEscuta(ambiente: ["RESOLUX_BIND": ""]) == IPv4Address("127.0.0.1"))
+        #expect(ResoluxServerMain.hostEscuta(ambiente: ["RESOLUX_BIND": "0.0.0.0"]) == nil)
+        #expect(ResoluxServerMain.hostEscuta(ambiente: ["RESOLUX_BIND": "*"]) == nil)
+        #expect(
+            ResoluxServerMain.hostEscuta(ambiente: ["RESOLUX_BIND": "100.115.91.93"])
+                == IPv4Address("100.115.91.93"))
+        #expect(ResoluxServerMain.hostEscuta(ambiente: ["RESOLUX_BIND": "lixo"]) == IPv4Address("127.0.0.1"))
+    }
+
+    @Test("frontend estático só existe com RESOLUX_FRONT_DIST definido")
+    func frontEstaticoOptIn() {
+        #expect(FrontendEstatico.localizar(ambiente: [:]) == nil)
+        #expect(FrontendEstatico.localizar(ambiente: ["RESOLUX_FRONT_DIST": ""]) == nil)
+        let localizado = FrontendEstatico.localizar(ambiente: ["RESOLUX_FRONT_DIST": "/tmp/dist"])
+        #expect(localizado != nil)
+        #expect(localizado?.raiz.path == "/tmp/dist")
     }
 
     @Test("decodificador WS lê frame mascarado canônico")

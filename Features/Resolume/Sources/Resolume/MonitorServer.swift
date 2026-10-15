@@ -50,7 +50,7 @@ public actor MonitorHTTPServer {
         guard listener == nil else { return }
         let listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
         listener.newConnectionHandler = { [weak self] connection in
-            Task { await self?.accept(connection) }
+            Task { await self?.atender(connection) }
         }
         listener.stateUpdateHandler = { [weak self] state in
             switch state {
@@ -80,7 +80,10 @@ public actor MonitorHTTPServer {
         boundPort = listener?.port?.rawValue
     }
 
-    private func accept(_ connection: NWConnection) {
+    /// Aceita uma conexão já recebida pelo daemon. O `pedido` é opcional para
+    /// o listener interno; quando o ResoluxServer repassa o HTTP completo, o
+    /// SSE é servido na mesma porta 1980 sem abrir uma porta pública nova.
+    public func atender(_ connection: NWConnection, pedido: Data? = nil, iniciar: Bool = true) {
         let id = UUID()
         connections[id] = connection
         connection.stateUpdateHandler = { [weak self] state in
@@ -92,18 +95,30 @@ public actor MonitorHTTPServer {
                 break
             }
         }
-        connection.start(queue: queue)
-        streams[id] = Task { await streamMonitor(id: id, connection: connection) }
+        if iniciar {
+            connection.start(queue: queue)
+        }
+        streams[id] = Task { await streamMonitor(id: id, connection: connection, pedido: pedido) }
     }
 
     private func forget(id: UUID) {
         connections.removeValue(forKey: id)
     }
 
-    private func streamMonitor(id: UUID, connection: NWConnection) async {
+    private func streamMonitor(id: UUID, connection: NWConnection, pedido: Data? = nil) async {
         do {
-            guard let request = try? await Self.readRequest(connection: connection, timeout: 5),
-                  let path = Self.requestPath(from: request) else {
+            let request: Data
+            if let pedido {
+                request = pedido
+            } else {
+                guard let lido = try? await Self.readRequest(connection: connection, timeout: 5) else {
+                    try? await Self.send(connection: connection, data: Self.notFoundResponse)
+                    await drop(id: id)
+                    return
+                }
+                request = lido
+            }
+            guard let path = Self.requestPath(from: request) else {
                 try? await Self.send(connection: connection, data: Self.notFoundResponse)
                 await drop(id: id)
                 return
