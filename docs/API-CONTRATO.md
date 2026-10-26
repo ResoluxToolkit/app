@@ -43,6 +43,33 @@ Este arquivo é a fronteira única entre a engine Swift e o cliente web. A engin
 | `GET /monitor` | SSE do monitor do sistema | evento `data: {contrato v1}` |
 | `POST /monitor/processes/{pid}/terminate` | encerra processo listado pelo monitor | `{"ok":true}` ou `{"ok":false}` |
 
+### Pareamento do celular (token rotativo)
+
+O painel no Mac pede um código; o celular devolve o código e recebe um token
+de aparelho. O código vale 5 minutos, é de uso único e gira no próximo `GET`
+depois de um pareamento bem-sucedido. Tokens ficam só em memória: reiniciar o
+daemon desfaz os pareamentos e o celular lê o QR de novo.
+
+| Método e caminho | Quem pode | Corpo/resposta |
+|---|---|---|
+| `GET /api/v1/pareamento` | só o próprio Mac | `{"codigo":"...","expiraEm":1792528561,"base":"http://192.168.0.100:1980"}`; fora do Mac: `403 {"error":{"code":"forbidden",...}}` |
+| `POST /api/v1/pareamento` | qualquer origem | envia `{"codigo":"..."}`; sucesso: `{"token":"..."}`; código inválido/vencido: `401 pairing_invalid`; excesso de tentativas: `429 rate_limited`; corpo ruim: `400 corpo_invalido` |
+
+- "Próprio Mac" é peer loopback ou um dos IPs das interfaces desta máquina. Atrás
+  do proxy do Vite, o `X-Forwarded-For` só é confiado quando o peer é loopback.
+- Fora do Mac, todas as rotas do daemon exigem token, exceto
+  `GET /api/v1/health`, `POST /api/v1/pareamento` e o bundle estático
+  (`/`, `/assets/**`, `/icons/**`, `manifest.webmanifest`), que o celular precisa
+  para abrir a tela de pareamento. `GET /api/v1/pareamento` é sempre só local.
+- O token vai em `Authorization: Bearer <token>` no HTTP; em WebSocket
+  (`/api/v1/ws`), SSE (`/monitor`) e thumbnails, onde o navegador não manda
+  header, vai em `?token=<token>`. A query `token=` não entra em log de acesso.
+- Sem token ou token desconhecido: `401 {"error":{"code":"unauthorized",...}}`
+  no HTTP e handshake WS recusado com 401. Ao receber 401, o cliente esquece o
+  token salvo e pede para ler o QR de novo.
+- A comparação do código é em tempo constante; no máximo 5 tentativas erradas
+  por IP em 60 segundos.
+
 ### Proxy do Arena
 
 - Caminho interno `/api/v1/arena/foo` vira o endpoint REST do Arena

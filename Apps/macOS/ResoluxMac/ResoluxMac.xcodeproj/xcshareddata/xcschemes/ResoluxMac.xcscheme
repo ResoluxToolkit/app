@@ -35,6 +35,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "0EB235AD3068F18B00D5CE02"
                BuildableName = "ResoluxMacTests.xctest"
+               BlueprintName = "ResoluxMacTests"
                ReferencedContainer = "container:ResoluxMac.xcodeproj">
             </BuildableReference>
          </TestableReference>

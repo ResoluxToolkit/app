@@ -1,4 +1,5 @@
 import Foundation
+import Pulse
 
 /// Tipos do wire format OpenAI /chat/completions (subset que usamos).
 public struct ChatMessage: Codable, Sendable, Equatable {
@@ -139,6 +140,7 @@ public struct URLSessionChatTransport: ChatBackendTransport {
     /// Visivel para testes (`@testable`): e assim que a regressao prova que o
     /// padrao nao voltou a ser `URLSession.shared` (teto de 60 s).
     let session: URLSession
+    private let proxy: URLSessionProxy?
 
     /// Turno local de verdade (modelo pequeno + 22 ferramentas MCP) medido em
     /// ~118 s. `URLSession.shared` corta em 60 s e a UI mostra "conectou e nao
@@ -151,11 +153,16 @@ public struct URLSessionChatTransport: ChatBackendTransport {
         configuration.timeoutIntervalForRequest = timeout
         configuration.timeoutIntervalForResource = timeout * 2
         configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        self.session = URLSession(configuration: configuration)
+        let proxy = PulseAudit.shared().makeProxy(configuration: configuration)
+        self.proxy = proxy
+        self.session = proxy.session
     }
 
     /// Para testes injetarem transporte controlado.
-    public init(session: URLSession) { self.session = session }
+    public init(session: URLSession) {
+        self.session = session
+        self.proxy = nil
+    }
 
     public func complete(endpoint: URL, apiKey: String, body: Data) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: endpoint)
@@ -163,7 +170,12 @@ public struct URLSessionChatTransport: ChatBackendTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.httpBody = body
-        let (data, response) = try await session.data(for: request)
+        let (data, response): (Data, URLResponse)
+        if let proxy {
+            (data, response) = try await proxy.data(for: request)
+        } else {
+            (data, response) = try await session.data(for: request)
+        }
         guard let httpResponse = response as? HTTPURLResponse else {
             throw ChatError.invalidResponse
         }

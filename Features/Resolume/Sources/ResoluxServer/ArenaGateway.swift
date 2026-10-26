@@ -1,4 +1,5 @@
 import Foundation
+import Pulse
 import Resolume
 
 /// Gateway read-only do REST do Arena para o proxy `/api/v1/arena/**` e para
@@ -19,6 +20,7 @@ public actor ArenaGateway {
     private let observador: ArenaRESTPortObserver
     private var porta: Int?
     private let timeout: TimeInterval
+    private let proxy: URLSessionProxy = PulseAudit.shared().makeProxy()
 
     public init(
         observador: ArenaRESTPortObserver = ArenaRESTPortObserver(),
@@ -45,7 +47,7 @@ public actor ArenaGateway {
         pedido.httpMethod = metodo
         pedido.timeoutInterval = timeout
         do {
-            let (corpo, resposta) = try await URLSession.shared.data(for: pedido)
+            let (corpo, resposta) = try await proxy.data(for: pedido)
             let http = resposta as? HTTPURLResponse
             return Resposta(
                 status: http?.statusCode ?? 500,

@@ -1,4 +1,5 @@
 import Foundation
+import Pulse
 import Resolume
 
 /// Fachada do chat no daemon v1: transforma o backend escolhido na sessão em
@@ -42,6 +43,7 @@ public actor MotorChat {
     private let transporteInjetado: (any ChatBackendTransport)?
     private let configFixa: ChatEngine.Config?
     private let mcpInjetado: MCPClient?
+    private let proxySondas: URLSessionProxy = PulseAudit.shared().makeProxy()
 
     public init(
         caminhoAccount: String = NSHomeDirectory() + "/.spike/account.json",
@@ -225,7 +227,7 @@ public actor MotorChat {
         var pedido = URLRequest(url: url)
         pedido.timeoutInterval = 1.2
         pedido.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        guard let (dados, resposta) = try? await URLSession.shared.data(for: pedido),
+        guard let (dados, resposta) = try? await proxySondas.data(for: pedido),
               let http = resposta as? HTTPURLResponse,
               http.statusCode == 200,
               let lista = try? JSONDecoder().decode(ListaModelos.self, from: dados)

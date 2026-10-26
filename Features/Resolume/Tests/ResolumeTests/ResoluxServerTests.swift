@@ -43,6 +43,18 @@ struct ResoluxServerTests {
         #expect(ResoluxServerMain.hostEscuta(ambiente: ["RESOLUX_BIND": "lixo"]) == IPv4Address("127.0.0.1"))
     }
 
+    @Test("URL do tray usa RESOLUX_PUBLIC_URL e cai para a URL pública")
+    func urlTray() {
+        let publica = ResoluxServerMain.urlFrontendTray(
+            ambiente: ["RESOLUX_PUBLIC_URL": "https://mac.tail17794.ts.net:8443"])
+        #expect(publica.absoluteString == "https://mac.tail17794.ts.net:8443")
+
+        #expect(ResoluxServerMain.urlFrontendTray(ambiente: [:]) == ResoluxServerMain.urlPublicaPadrao)
+        #expect(
+            ResoluxServerMain.urlFrontendTray(ambiente: ["RESOLUX_PUBLIC_URL": ""])
+                == ResoluxServerMain.urlPublicaPadrao)
+    }
+
     @Test("frontend estático só existe com RESOLUX_FRONT_DIST definido")
     func frontEstaticoOptIn() {
         #expect(FrontendEstatico.localizar(ambiente: [:]) == nil)

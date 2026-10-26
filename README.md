@@ -1,6 +1,6 @@
 # ResoluxToolkit
 
-Website: [https://resolux-toolkit.vercel.app](https://resolux-toolkit.vercel.app)
+Website: [https://resolux.app](https://resolux.app)
 
 ResoluxToolkit é um monorepo Swift para suportar um operador de VJ no trabalho com o **Resolume Arena**. O produto central é o app macOS `ResoluxMac`, que conversa com o Arena por MCP e REST, expõe monitoramento read-only e um assistente local com loop de ferramentas.
 

@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 
 export RESOLUX_BIND="127.0.0.1"
 unset RESOLUX_FRONT_DIST
+export RESOLUX_PUBLIC_URL="${RESOLUX_PUBLIC_URL:-https://mac.tail17794.ts.net:8443}"
 
 front_cmd() {
     if command -v pnpm >/dev/null 2>&1; then

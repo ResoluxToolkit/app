@@ -41,6 +41,24 @@ public struct PedidoHttp: Sendable {
         if let pos = caminho.firstIndex(of: "?") { String(caminho[..<pos]) }
         else { caminho }
     }
+
+    /// Query string decodificada (primeiro valor de cada nome).
+    public var consulta: [String: String] {
+        guard let pos = caminho.firstIndex(of: "?") else { return [:] }
+        let bruto = caminho[caminho.index(after: pos)...]
+        var valores: [String: String] = [:]
+        for par in bruto.split(separator: "&") {
+            let partes = par.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard !partes.isEmpty, let nome = String(partes[0]).removingPercentEncoding else {
+                continue
+            }
+            let valor = partes.count == 2
+                ? (String(partes[1]).removingPercentEncoding ?? "")
+                : ""
+            valores[nome] = valor
+        }
+        return valores
+    }
 }
 
 public struct RespostaHttp: Sendable {
@@ -82,8 +100,11 @@ public struct RespostaHttp: Sendable {
         switch status {
         case 200: return "OK"
         case 400: return "Bad Request"
+        case 401: return "Unauthorized"
+        case 403: return "Forbidden"
         case 404: return "Not Found"
         case 405: return "Method Not Allowed"
+        case 429: return "Too Many Requests"
         case 502: return "Bad Gateway"
         default: return "OK"
         }
