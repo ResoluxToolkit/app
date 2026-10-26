@@ -1,5 +1,7 @@
 import Foundation
+import AppKit
 import Network
+import WebKit
 import Resolume
 
 /// Daemon da Resolux API v1. É o único processo do cliente web: escuta em
@@ -23,6 +25,13 @@ import Resolume
                 await conversa.publicar(corpo)
             }
             let motor = MotorChat()
+            let pareamento = Pareamento()
+
+        let bandeja = BandejaResolux(urlPublica: urlFrontendTray())
+        let aplicacao = NSApplication.shared
+        aplicacao.setActivationPolicy(.accessory)
+        aplicacao.delegate = bandeja
+        bandeja.instalar()
 
         let parametros = NWParameters.tcp
         let host = hostEscuta() ?? .any
@@ -30,11 +39,15 @@ import Resolume
             host: .ipv4(host),
             port: 1980)
         let listener = try! NWListener(using: parametros)
+        bandeja.vincular(listener: listener)
         listener.stateUpdateHandler = { estado in
             if case .failed(let erro) = estado {
+                Task { @MainActor in bandeja.marcarFalha() }
                 FileHandle.standardError.write(
                     Data("[ResoluxServer] falha ao escutar na 1980: \(erro)\n".utf8))
                 exit(1)
+            } else if case .ready = estado {
+                Task { @MainActor in bandeja.marcarRodando() }
             }
         }
         listener.newConnectionHandler = { conexao in
@@ -48,11 +61,12 @@ import Resolume
                     conversa: conversa,
                     motor: motor,
                     front: front,
-                    persistencia: persistencia)
+                    persistencia: persistencia,
+                    pareamento: pareamento)
             }
         }
         listener.start(queue: .global(qos: .userInitiated))
-        await manterAcordado()
+        aplicacao.run()
     }
 
     /// Host de escuta. Default `127.0.0.1`; `RESOLUX_BIND=0.0.0.0` devolve
@@ -75,8 +89,10 @@ import Resolume
         conversa: ConversaHub,
         motor: MotorChat,
         front: FrontendEstatico?,
-        persistencia: PersistenciaDisco) async {
+        persistencia: PersistenciaDisco,
+        pareamento: Pareamento) async {
         conexao.start(queue: .global(qos: .userInitiated))
+        let peer = enderecoRemoto(conexao)
         var emWebSocket = false
         var buffer = Data()
         var decodificador = WsDecodificador()
@@ -116,7 +132,29 @@ import Resolume
 
             if !emWebSocket {
                 guard let pedido = PedidoHttp.parse(buffer) else { continue }
+                let cliente = AcessoDaemon.clienteReal(
+                    peer: peer,
+                    encaminhado: pedido.cabecalhos["x-forwarded-for"])
+                let local = AcessoDaemon.ehLocal(cliente)
+                let tokenValido = await pareamento.tokenValido(
+                    AcessoDaemon.tokenDoPedido(pedido))
+                let autorizado = local || tokenValido
                 if pedido.rota == "/monitor" || pedido.rota.hasPrefix("/monitor/processes/") {
+                    guard autorizado else {
+                        await enviar(conexao, RespostaHttp.erro(
+                            codigo: "unauthorized",
+                            mensagem: "Pareie este aparelho lendo o QR do painel.",
+                            status: 401).serializar())
+                        await despedir(
+                            conexao,
+                            emWebSocket: false,
+                            assinatura: nil,
+                            monitor: monitor,
+                            idMonitor: nil,
+                            conversa: conversa,
+                            assinaturaConversa: nil)
+                        return
+                    }
                     await sistema.atender(conexao, pedido: buffer, iniciar: false)
                     return
                 }
@@ -127,6 +165,23 @@ import Resolume
                             codigo: "invalid_message",
                             mensagem: "Handshake WebSocket recusado",
                             status: 400)
+                        await enviar(conexao, resposta.serializar())
+                        await despedir(
+                            conexao,
+                            emWebSocket: false,
+                            assinatura: nil,
+                            monitor: monitor,
+                            idMonitor: nil,
+                            conversa: conversa,
+                            assinaturaConversa: nil)
+                        return
+                    }
+
+                    guard autorizado else {
+                        let resposta = RespostaHttp.erro(
+                            codigo: "unauthorized",
+                            mensagem: "Pareie este aparelho lendo o QR do painel.",
+                            status: 401)
                         await enviar(conexao, resposta.serializar())
                         await despedir(
                             conexao,
@@ -156,7 +211,11 @@ import Resolume
                     gateway: gateway,
                     motor: motor,
                     front: front,
-                    persistencia: persistencia)
+                    persistencia: persistencia,
+                    pareamento: pareamento,
+                    local: local,
+                    autorizado: autorizado,
+                    cliente: cliente)
                 await enviar(
                     conexao,
                     resposta.serializar(semCorpo: pedido.metodo == "HEAD"))
@@ -209,9 +268,94 @@ import Resolume
         }
     }
 
-    private static func manterAcordado() async {
-        while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
+    /// Frontend mostrado pelo menu de barra. `RESOLUX_PUBLIC_URL` permite
+    /// apontar para o endereço público (Tailscale/proxy), sem mudar o bind.
+    static let urlPublicaPadrao = URL(string: "https://mac.tail17794.ts.net:8443")!
+
+    static func urlFrontendTray(
+        ambiente: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        let publico = ambiente["RESOLUX_PUBLIC_URL"] ?? ""
+        if !publico.isEmpty, let url = URL(string: publico) {
+            return url
+        }
+        return urlPublicaPadrao
+    }
+
+    @MainActor
+    private final class BandejaResolux: NSObject, NSApplicationDelegate {
+        private let urlPublica: URL
+        private var listener: NWListener?
+        private var statusItem: NSStatusItem?
+        private var rotuloEstado: NSMenuItem?
+        private var janelaFrontend: NSWindow?
+        private var webviewFrontend: WKWebView?
+
+        init(urlPublica: URL) {
+            self.urlPublica = urlPublica
+        }
+
+        func vincular(listener: NWListener) {
+            self.listener = listener
+        }
+
+        func instalar() {
+            let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            statusItem.button?.title = "Resolux"
+            if let imagem = NSImage(
+                systemSymbolName: "rectangle.on.rectangle",
+                accessibilityDescription: "Resolux") {
+                statusItem.button?.image = imagem
+            }
+
+            let menu = NSMenu()
+            let rotulo = NSMenuItem(title: "Iniciando — \(urlPublica.absoluteString)", action: nil, keyEquivalent: "")
+            let abrir = NSMenuItem(title: "Abrir Webview", action: #selector(abrirFrontend), keyEquivalent: "")
+            abrir.target = self
+            let sair = NSMenuItem(title: "Sair do Resolux", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+
+            menu.addItem(rotulo)
+            menu.addItem(.separator())
+            menu.addItem(abrir)
+            menu.addItem(sair)
+            statusItem.menu = menu
+
+            self.statusItem = statusItem
+            rotuloEstado = rotulo
+        }
+
+        func marcarRodando() {
+            rotuloEstado?.title = "Rodando — \(urlPublica.absoluteString)"
+        }
+
+        func marcarFalha() {
+            rotuloEstado?.title = "Falha na porta 1980"
+        }
+
+        @objc private func abrirFrontend() {
+            if let janela = janelaFrontend {
+                janela.makeKeyAndOrderFront(nil)
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                return
+            }
+
+            let webview = WKWebView(frame: .zero)
+            webview.autoresizingMask = [.width, .height]
+            webview.load(URLRequest(url: urlPublica))
+
+            let janela = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false)
+            janela.title = "Resolux"
+            janela.contentView = webview
+            janela.isReleasedWhenClosed = false
+            janela.center()
+            janela.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+
+            janelaFrontend = janela
+            webviewFrontend = webview
         }
     }
 
@@ -431,6 +575,18 @@ import Resolume
         return faixaPrivadaAceita(host)
     }
 
+    /// Peer TCP da conexão aceita. É por aqui que o daemon sabe se o pedido
+    /// veio do próprio Mac ou de outro aparelho da rede.
+    static func enderecoRemoto(_ conexao: NWConnection) -> String? {
+        guard case let .hostPort(host, _) = conexao.endpoint else { return nil }
+        switch host {
+        case .ipv4(let endereco): return "\(endereco)"
+        case .ipv6(let endereco): return "\(endereco)"
+        case .name(let nome, _): return nome
+        @unknown default: return nil
+        }
+    }
+
     private static func faixaPrivadaAceita(_ host: String) -> Bool {
         let octetos = host.split(separator: ".").compactMap { UInt8($0) }
         guard octetos.count == 4 else { return false }
@@ -468,13 +624,30 @@ import Resolume
 
     // MARK: - HTTP
 
-    private static func responderHttp(
+    static func responderHttp(
         _ pedido: PedidoHttp,
         estado: EstadoSessao,
         gateway: ArenaGateway,
         motor: MotorChat,
         front: FrontendEstatico?,
-        persistencia: PersistenciaDisco) async -> RespostaHttp {
+        persistencia: PersistenciaDisco,
+        pareamento: Pareamento,
+        local: Bool,
+        autorizado: Bool,
+        cliente: String?) async -> RespostaHttp {
+        if pedido.rota == "/api/v1/pareamento" {
+            return await responderPareamento(
+                pedido,
+                pareamento: pareamento,
+                local: local,
+                cliente: cliente)
+        }
+        if !autorizado && AcessoDaemon.exigeToken(pedido) {
+            return RespostaHttp.erro(
+                codigo: "unauthorized",
+                mensagem: "Pareie este aparelho lendo o QR do painel.",
+                status: 401)
+        }
         switch pedido.rota {
         case "/api/v1/health":
             return .json(Data(#"{"protocol":"resolux-api/1","status":"online"}"#.utf8))
@@ -508,6 +681,67 @@ import Resolume
                 codigo: "not_found",
                 mensagem: "Rota fora do contrato v1.",
                 status: 404)
+        }
+    }
+
+    static func responderPareamento(
+        _ pedido: PedidoHttp,
+        pareamento: Pareamento,
+        local: Bool,
+        cliente: String?) async -> RespostaHttp {
+        switch pedido.metodo {
+        case "GET":
+            guard local else {
+                return RespostaHttp.erro(
+                    codigo: "forbidden",
+                    mensagem: "O código de pareamento só é gerado no Mac.",
+                    status: 403)
+            }
+            let codigo = await pareamento.codigo()
+            var corpo: [String: MCPValue] = [
+                "codigo": .string(codigo.valor),
+                "expiraEm": .int(codigo.expiraEm),
+            ]
+            if let base = AcessoDaemon.baseDeRede(host: pedido.cabecalhos["host"]) {
+                corpo["base"] = .string(base)
+            }
+            let dados = (try? JSONEncoder().encode(corpo))
+                ?? Data(#"{"codigo":"","expiraEm":0}"#.utf8)
+            return .json(dados)
+        case "POST":
+            guard let corpo = try? JSONDecoder().decode(
+                [String: MCPValue].self,
+                from: pedido.corpo),
+                case .string(let codigo) = corpo["codigo"] ?? .null,
+                !codigo.isEmpty else {
+                return RespostaHttp.erro(
+                    codigo: "corpo_invalido",
+                    mensagem: "Payload de POST /pareamento inválido.",
+                    status: 400)
+            }
+            do {
+                let token = try await pareamento.parear(
+                    codigo: codigo,
+                    cliente: cliente ?? "desconhecido")
+                let dados = (try? JSONEncoder().encode(["token": MCPValue.string(token)]))
+                    ?? Data(#"{"token":""}"#.utf8)
+                return .json(dados)
+            } catch Pareamento.Falha.excessoTentativas {
+                return RespostaHttp.erro(
+                    codigo: "rate_limited",
+                    mensagem: "Muitas tentativas de pareamento. Espere um minuto.",
+                    status: 429)
+            } catch {
+                return RespostaHttp.erro(
+                    codigo: "pairing_invalid",
+                    mensagem: "Código vencido ou inválido.",
+                    status: 401)
+            }
+        default:
+            return RespostaHttp.erro(
+                codigo: "method_not_allowed",
+                mensagem: "Apenas GET e POST.",
+                status: 405)
         }
     }
 

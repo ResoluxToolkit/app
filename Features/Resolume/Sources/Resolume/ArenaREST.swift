@@ -1,4 +1,5 @@
 import Foundation
+import Pulse
 
 /// Cliente minimo do REST embutido no Arena (`http://127.0.0.1:8080/api/v1`).
 ///
@@ -42,7 +43,7 @@ public struct ArenaREST: Sendable {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.timeoutIntervalForRequest = timeout
             configuration.waitsForConnectivity = false
-            let session = URLSession(configuration: configuration)
+            let proxy = PulseAudit.shared().makeProxy(configuration: configuration)
             let base = "http://127.0.0.1:\(port)/api/v1"
 
             let status: @Sendable (URLResponse, String) throws -> Int = { response, path in
@@ -57,7 +58,7 @@ public struct ArenaREST: Sendable {
                     guard let url = URL(string: base + path) else {
                         throw Failure.transporte("URL invalida: \(path)")
                     }
-                    let (data, response) = try await session.data(from: url)
+                    let (data, response) = try await proxy.data(from: url)
                     let code = try status(response, path)
                     guard (200..<300).contains(code) else { throw Failure.http(code) }
                     return data
@@ -71,7 +72,7 @@ public struct ArenaREST: Sendable {
                     request.setValue("application/json",
                                      forHTTPHeaderField: "Content-Type")
                     request.httpBody = body
-                    let (data, response) = try await session.data(for: request)
+                    let (data, response) = try await proxy.data(for: request)
                     let code = try status(response, path)
                     guard (200..<300).contains(code) else { throw Failure.http(code) }
                     return data

@@ -1,4 +1,5 @@
 import Foundation
+import Pulse
 
 /// Backend de chat local descoberto sozinho, sem nenhum campo pra preencher.
 ///
@@ -134,7 +135,7 @@ public struct LocalChatBackend: Identifiable, Sendable, Equatable {
         if let apiKey {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
-        guard let (data, response) = try? await localSession.data(for: request),
+        guard let (data, response) = try? await localProxy.data(for: request),
               let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode),
               let decoded = try? JSONDecoder().decode(ModelsResponse.self, from: data)
@@ -148,16 +149,16 @@ public struct LocalChatBackend: Identifiable, Sendable, Equatable {
         return LocalChatBackend(kind: kind, baseURL: baseURL, model: model)
     }
 
-    /// Sessão dedicada: probe curto nao herda o teto longo do transporte de
+    /// Proxy dedicado: probe curto nao herda o teto longo do transporte de
     /// chat, e cache nenhum faz sentido em descoberta.
-    static let localSession: URLSession = {
+    static let localProxy: URLSessionProxy = PulseAudit.shared().makeProxy(configuration: {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 2
         configuration.timeoutIntervalForResource = 4
         configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         configuration.waitsForConnectivity = false
-        return URLSession(configuration: configuration)
-    }()
+        return configuration
+    }())
 }
 
 private extension URLRequest {

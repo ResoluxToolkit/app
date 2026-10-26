@@ -18,11 +18,15 @@ let package = Package(
         .package(
             path: "../../../../../Libraries.dev/packages/thinking-orbs/ports/ios/ThinkingOrbsKit"
         ),
+        .package(url: "https://github.com/kean/Pulse", from: "5.2.0"),
     ],
     targets: [
         .target(
             name: "Resolume",
-            dependencies: [.product(name: "ResoluxCore", package: "ResoluxCore")],
+            dependencies: [
+                .product(name: "ResoluxCore", package: "ResoluxCore"),
+                .product(name: "Pulse", package: "Pulse"),
+            ],
             resources: [.process("Resources")]),
         .target(name: "ResolumeUI", dependencies: [
             "Resolume",
