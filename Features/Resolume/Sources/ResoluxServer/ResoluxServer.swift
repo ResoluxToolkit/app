@@ -11,7 +11,17 @@ import Resolume
 /// nesta build — honestidade de estado na cara da API.
     @main
     struct ResoluxServerMain {
-        static func main() async {
+        static func main() {
+            let bandeja = BandejaResolux(urlPublica: urlFrontendTray())
+            let aplicacao = NSApplication.shared
+            aplicacao.setActivationPolicy(.accessory)
+            aplicacao.delegate = bandeja
+            bandeja.instalar()
+            aplicacao.run()
+        }
+
+        @MainActor
+        private static func iniciar(bandeja: BandejaResolux) async {
             let persistencia = PersistenciaDisco()
             let restaurada = try? await persistencia.preparar()
             let estado = EstadoSessao(sessao: restaurada ?? SessaoV1())
@@ -26,12 +36,6 @@ import Resolume
             }
             let motor = MotorChat()
             let pareamento = Pareamento()
-
-        let bandeja = BandejaResolux(urlPublica: urlFrontendTray())
-        let aplicacao = NSApplication.shared
-        aplicacao.setActivationPolicy(.accessory)
-        aplicacao.delegate = bandeja
-        bandeja.instalar()
 
         let parametros = NWParameters.tcp
         let host = hostEscuta() ?? .any
@@ -66,7 +70,6 @@ import Resolume
             }
         }
         listener.start(queue: .global(qos: .userInitiated))
-        aplicacao.run()
     }
 
     /// Host de escuta. Default `127.0.0.1`; `RESOLUX_BIND=0.0.0.0` devolve
@@ -289,9 +292,16 @@ import Resolume
         private var rotuloEstado: NSMenuItem?
         private var janelaFrontend: NSWindow?
         private var webviewFrontend: WKWebView?
+        private let navegacaoFrontend = NavegacaoFrontend()
 
         init(urlPublica: URL) {
             self.urlPublica = urlPublica
+        }
+
+        func applicationDidFinishLaunching(_ notification: Notification) {
+            Task { @MainActor in
+                await ResoluxServerMain.iniciar(bandeja: self)
+            }
         }
 
         func vincular(listener: NWListener) {
@@ -332,15 +342,19 @@ import Resolume
         }
 
         @objc private func abrirFrontend() {
+            FileHandle.standardError.write(
+                Data("[ResoluxServer] abrirFrontend em \(Thread.isMainThread ? "main" : "thread errada")\n".utf8))
             if let janela = janelaFrontend {
                 janela.makeKeyAndOrderFront(nil)
                 NSApplication.shared.activate(ignoringOtherApps: true)
                 return
             }
 
-            let webview = WKWebView(frame: .zero)
+            let configuracao = WKWebViewConfiguration()
+            configuracao.websiteDataStore = .nonPersistent()
+            let webview = WKWebView(frame: .zero, configuration: configuracao)
             webview.autoresizingMask = [.width, .height]
-            webview.load(URLRequest(url: urlPublica))
+            webview.navigationDelegate = navegacaoFrontend
 
             let janela = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
@@ -349,13 +363,69 @@ import Resolume
                 defer: false)
             janela.title = "Resolux"
             janela.contentView = webview
+            webview.frame = janela.contentView!.bounds
             janela.isReleasedWhenClosed = false
             janela.center()
             janela.makeKeyAndOrderFront(nil)
             NSApplication.shared.activate(ignoringOtherApps: true)
+            janela.makeKey()
+            FileHandle.standardError.write(
+                Data("[ResoluxServer] carregando \(urlPublica.absoluteString)\n".utf8))
+            DispatchQueue.main.async {
+                let navegacao = webview.load(URLRequest(url: self.urlPublica))
+                FileHandle.standardError.write(
+                    Data("[ResoluxServer] load: \(navegacao != nil ? "ok" : "nil"), frame \(webview.frame), delegate \(webview.navigationDelegate != nil)\n".utf8))
+            }
 
             janelaFrontend = janela
             webviewFrontend = webview
+        }
+
+        private final class NavegacaoFrontend: NSObject, WKNavigationDelegate {
+            func webView(
+                _ webView: WKWebView,
+                decidePolicyFor navigationAction: WKNavigationAction,
+                decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+                FileHandle.standardError.write(
+                    Data("[ResoluxServer] policy: \(navigationAction.request.url?.absoluteString ?? "?")\n".utf8))
+                decisionHandler(.allow)
+            }
+
+            func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+                FileHandle.standardError.write(
+                    Data("[ResoluxServer] webview commit: \(webView.url?.absoluteString ?? "?")\n".utf8))
+            }
+
+            func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+                FileHandle.standardError.write(
+                    Data("[ResoluxServer] webview processo terminou\n".utf8))
+            }
+
+            func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+                FileHandle.standardError.write(
+                    Data("[ResoluxServer] webview iniciando: \(webView.url?.absoluteString ?? "?")\n".utf8))
+            }
+
+            func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+                FileHandle.standardError.write(
+                    Data("[ResoluxServer] webview carregou: \(webView.url?.absoluteString ?? "?")\n".utf8))
+            }
+
+            func webView(
+                _ webView: WKWebView,
+                didFail navigation: WKNavigation!,
+                withError error: Error) {
+                FileHandle.standardError.write(
+                    Data("[ResoluxServer] webview falhou: \(error.localizedDescription)\n".utf8))
+            }
+
+            func webView(
+                _ webView: WKWebView,
+                didFailProvisionalNavigation navigation: WKNavigation!,
+                withError error: Error) {
+                FileHandle.standardError.write(
+                    Data("[ResoluxServer] webview falhou no carregamento inicial: \(error.localizedDescription)\n".utf8))
+            }
         }
     }
 
